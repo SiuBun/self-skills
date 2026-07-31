@@ -51,6 +51,16 @@ description: 按 siubun_fastcall 项目既有的 Kotlin、MVI、Session、XML Co
 - 需要运行时圆角或背景时使用 `ViewShapeEx.kt` 的扩展方法，并让 XML 背景和运行时背景保持一致。
 - 处理沉浸式页面时，先阅读窗口 inset 逻辑。Figma 含 Bottom Bar 时，不将 Bottom Bar 高度加进内容 padding。
 
+## Dialog、Bottom Sheet 与键盘
+
+- 居中弹窗继承 `BaseDialogFragment`，参考 `CoinsComboDia`：基类会禁用返回键和点击外部取消、设置透明 Window 背景并在启动时设为全屏宽度。除非产品明确要求可取消，否则不要覆盖此行为。
+- 居中弹窗使用可空 `_binding` 与非空 `binding` getter，必须在 `onDestroyView()` 将 `_binding = null`；与 View 绑定的 Job、回调或循环也必须在此取消。
+- 底部弹窗直接继承 `BottomSheetDialogFragment`，以 `SelectLanguageDia`、`GiftDia` 为主参考。`onViewCreated()` 中将 `view.parent` 背景设为透明，避免顶部圆角露出 Bottom Sheet 默认白底；使用 `setTopCornersShape()` 设置根视图顶部圆角，并设置滑动条和内部容器形状。
+- 底部弹窗通过 `companion object` 提供带固定 `TAG` 的 `show` / `create` 方法；参数优先写入 `arguments`。只有无法序列化的短生命周期回调才以属性传入，并在弹窗销毁后不再依赖它。
+- Bottom Sheet 需要避让键盘或系统 inset 时，在 `onStart()` 对 `dialog.window` 调用 `WindowCompat.setDecorFitsSystemWindows(window, false)`，在 `window.decorView` 设置 `ViewCompat.setOnApplyWindowInsetsListener`，读取 `WindowInsetsCompat.Type.ime()`，将 `binding.root` 的 bottom margin 更新为 `imeInsets.bottom` 后请求布局，并返回原始 `insets`。没有键盘/系统栏避让需求时不添加无效监听。
+- 控制输入框键盘显示与隐藏时复用 `ViewExt.kt` 的 `toggleIme(window, editText, show)`；显示前会聚焦输入框，隐藏时会清除焦点。判断键盘可见性使用 `View.isKeyboardVisible()`，不要通过固定屏幕高度推测。
+- 弹窗中的状态、事件和 Flow 收集仍遵循 ViewModel 与生命周期规则；关闭使用 `dismissAllowingStateLoss()`，并保留 `safeClick` 防抖。
+
 ## RecyclerView、DiffUtil 与 Paging
 
 - 简单列表使用 `ListAdapter`，分页列表使用 `PagingDataAdapter`；ViewHolder 使用生成的 Item Binding。
@@ -82,6 +92,9 @@ description: 按 siubun_fastcall 项目既有的 Kotlin、MVI、Session、XML Co
 - `session/UserSessionManager.kt`：会话状态、登录、恢复与登出串行管理。
 - `session/UserSessionContainer.kt`：会话级服务及登出清理。
 - `viewmodel/LoginVM.kt`：ViewModel 事件流、加载状态和 Factory。
+- `ui/frag/BaseDialogFragment.kt`、`ui/dialog/CoinsComboDia.kt`：居中弹窗基类、ViewBinding 与资源清理。
+- `ui/dialog/SelectLanguageDia.kt`、`ui/dialog/GiftDia.kt`：Bottom Sheet 的透明父层、顶部圆角、展示入口和列表组织。
+- `utils/ViewExt.kt`：`toggleIme` 与键盘可见性判断；`ui/dialog/SelectLanguageDia.kt`：Bottom Sheet 的 IME inset 避让。
 - `discover/PopularFrag.kt`：Paging 收集、LoadState、下拉刷新、错误重试与生命周期收集。
 - `ui/adapter/PopularPagingAdapter.kt`：当前标准的 Paging Adapter、DiffUtil、payload、安全点击和动态卡片比例。
 - `res/layout/item_anchor_wall.xml`：ConstraintLayout、文本约束和预览属性。
