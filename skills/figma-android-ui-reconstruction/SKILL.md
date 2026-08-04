@@ -19,10 +19,26 @@ description: 使用 Figma MCP 将 Figma 设计稿还原或校正到本项目的 
 
 ## 将设计属性映射到本项目
 
-- 字体使用 `app/src/main/res/font/` 下的本地资源。当前字体为 Poppins，`regular`、`medium`、`semi_bold` 分别对应相应字重。
+- 字体使用 `app/src/main/res/font/` 下的本地资源。当前字体为 Poppins，`regular`、`medium`、`semi_bold`、`bold` 以及对应 italic 文件分别映射设计稿字重和斜体。
 - 容器背景使用原始颜色资源，例如 `color_0b0b19`、`color_f3f4f4`。`text_title_btn_color` 这类语义文本颜色资源只能用于文本。
-- 运行时背景和圆角使用 `ViewShapeEx.kt` 的扩展方法。XML 中也要保留对应背景，确保预览和初始渲染一致；运行时设置形状会覆盖 XML 背景。
+- 运行时背景和圆角使用 `ViewShapeEx.kt` 的扩展方法。若 Activity、Dialog 或 ViewHolder 已在代码中设置形状，运行时代码是最终效果的唯一基准；XML 只需设置接近设计的纯色背景以便预览，不要为了预览新增 drawable、控件层级或嵌套。
 - 保留既有字符串资源和点击行为。只调整颜色、字体、大小和间距，不能替换本地化文本。
+
+## 文本和形状样式检查
+
+当用户要求按 Figma 调整“文本样式”时，默认逐项核对并按设计更新以下属性，不能只改字号或颜色：
+
+- 字体文件、字重、斜体、字号、文字颜色、行高、对齐方式和 `includeFontPadding`。
+- 文本所在按钮、标签、卡片或选项容器的背景色、渐变、描边、圆角、固定高度和必要内边距。
+- XML 静态属性与 Kotlin 运行时设置；先搜索 Activity、Dialog、Adapter、ViewHolder 中是否会覆盖 XML 背景或文字属性。
+
+实施时遵守以下边界：
+
+- 只修改用户提供设计节点对应的控件，不顺带调整未提供设计的按钮、文案或其他控件。
+- 用户仅要求样式时，保持原 XML 控件结构，不新增 UI 层级、包装容器或嵌套，也不替换现有 icon。
+- Figma 文本存在混合字号、颜色或字重时，优先复用 `SpannableUtils.highLightString`；先确认它支持所需的颜色、加粗和字号组合，不足时再使用项目既有 span 方案。
+- 渐变、不对称圆角或描边应在运行时代码中使用 `setGradientShape`、`setCustomCornersShape`、`setShapeColorRes` 等既有扩展精确实现；XML 设置可见的近似纯色即可。
+- 公共 layout 或 Adapter 被多个页面复用时，先确认设计是否适用于全部场景。仅单一场景需要新样式时，使用场景专属 layout/Adapter，避免改变其他页面。
 
 ## 安全换算尺寸与间距
 
@@ -57,4 +73,4 @@ description: 使用 Figma MCP 将 Figma 设计稿还原或校正到本项目的 
 3. 写清触发场景、已验证证据和必须采取的动作；不要粘贴对话记录，也不要记录敏感信息。
 4. 后续证据推翻既有规则时，更新或删除该规则；将技能与产出该经验的 UI 修改一并提交。
 
-项目技能位于 `.github/skills/figma-android-ui-reconstruction/`，后续 Copilot CLI 会话会自动发现。当前会话编辑后执行 `/skills reload` 即可重新加载。
+技能源码位于 `self-skills/skills/figma-android-ui-reconstruction/`，并通过 `~/.copilot/skills/` 下的链接安装。后续 Copilot CLI 会话会自动发现；当前会话编辑后执行 `/skills reload` 即可重新加载，无需重启 Copilot CLI。
