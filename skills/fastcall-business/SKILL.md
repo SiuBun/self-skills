@@ -10,7 +10,7 @@ description: 理解、分析或修改 siubun_fastcall 工程时使用。记录�
 ## 工程概览
 
 - 单 Android `app` 模块，Kotlin + XML/ViewBinding，不使用 Compose。
-- `minSdk 29`、`targetSdk/compileSdk 36`、Java/Kotlin 17。
+- `minSdk 29`、`targetSdk/compileSdk 37`、Java/Kotlin 17。
 - 两个 product flavor：
   - `local`：测试包和部分模拟业务。
   - `google`：正式 Google Play、Google Billing 和正式 applicationId。
@@ -181,7 +181,7 @@ description: 理解、分析或修改 siubun_fastcall 工程时使用。记录�
 
 主 Fragment 继承 `BaseFragmentV2`，实现 `createViewBinding()` 和 `setupViews()`。
 
-当前基类使用 `lateinit binding` 且不在 `onDestroyView()` 清空；维护页面时必须避免 View 生命周期结束后的引用和收集。新增更安全基类时应使用可空 backing field。
+`BaseFragmentV2` 已改为 View 生命周期安全的可空 binding，并在 `onDestroyView()` 清空。基类不自动调用 `setupViews()`，登录态和其他初始化门控仍由子类显式控制。
 
 ### Flow 收集
 
@@ -316,6 +316,138 @@ pickup/reject/hangup/outgoing 等操作使用 `Mutex` 避免并发。
 
 释放时需要同时释放 RTC、信令、计时任务和事件收集。
 
+### 状态与导航边界
+
+- `CallManager.state` 是唯一持续通话状态；页面只根据状态恢复 UI。
+- `CallManager.events` 表达一次性业务事件，由 `UserSessionContainer` 统一消费主要导航：
+  - `OnOutgoingStarted`：按 `CallOrigin` 打开 `OutgoingAc` 或 `RandomMatchAc`；
+  - `OnIncoming`：打开 `IncomingAc`；
+  - `OnFakeIncoming`：在免打扰允许时打开 `FakeIncomingAc`；
+  - `OnPickup`：唯一一次启动 `VideoCallAc`。
+- `IncomingAc`、`OutgoingAc`、`FakeIncomingAc`、`RandomMatchAc` 不在
+  `CONNECTED` 状态中再次启动 `VideoCallAc`；它们收到 `OnPickup` 只负责关闭自身。
+- Service 和通知不创建 `IncomingAc`、`OutgoingAc`、`RandomMatchAc` 等业务过渡页，
+  避免恢复页面时重新驱动流程。
+
+### 四类呼叫入口
+
+#### 普通外呼
+
+```text
+业务页面点击呼叫
+  -> CallPermissionRequester.requestOutgoing()
+  -> CallManager.prepareOutgoing() 保存 targetUid/callOrigin/source/freeType
+  -> 相机、麦克风权限
+  -> CallNotificationPermissionFragment 处理通知说明、系统授权或设置页
+  -> CallManager.completePendingCallPermission()
+  -> outgoingApi()
+  -> PREPARING + 启动前台服务 + OnOutgoingStarted
+  -> UserSessionContainer 打开 OutgoingAc
+  -> 外呼接口成功，状态 OUTGOING，开始超时与 RTC 预加入/预录视频
+  -> 对方接听或模拟接听，状态 CONNECTED + OnPickup
+  -> UserSessionContainer 唯一启动 VideoCallAc
+```
+
+#### 真实来电
+
+```text
+IM SignalingEvent Incoming
+  -> CallManager.handleIncoming()
+  -> 状态 INCOMING + RTC 预加入 + OnIncoming
+  -> UserSessionContainer 打开 IncomingAc
+  -> 用户点击接听
+  -> CallPermissionRequester.requestPickup()
+  -> 通知权限协调
+  -> pickupApi() 启动前台服务、调用接听接口、完成/复用 RTC 加入
+  -> 状态 CONNECTED + OnPickup
+  -> UserSessionContainer 唯一启动 VideoCallAc
+```
+
+来电响铃本身不启动前台服务；用户确认接听后才启动。拒绝、超时或远端取消会重置状态并
+结束来电页。
+
+#### 假来电
+
+```text
+CallFakeRequest / OnFakeIncoming
+  -> FakeIncomingAc 展示模拟来电
+  -> 用户点击接听
+  -> closeFakeCall() 清除模拟状态
+  -> requestOutgoing(CallOrigin.FAKE_CALL)
+  -> 统一权限协调
+  -> 发起一次真实外呼
+```
+
+`closeFakeCall()` 产生的中间 `IDLE` 是流程切换，不是页面终止协议；
+`FakeIncomingAc` 不能监听该状态直接 `finish()`，否则会销毁权限协调宿主并遗留 pending
+外呼。
+
+#### 随机匹配
+
+```text
+MainAc 发起随机匹配
+  -> RandomMatchVM 保存匹配状态和待导航目标
+  -> 命中目标后 MainAc 在 RESUMED 状态消费目标
+  -> requestOutgoing(CallOrigin.MATCH_RECOMMEND)
+  -> 统一权限协调
+  -> OnOutgoingStarted
+  -> UserSessionContainer 打开 RandomMatchAc
+  -> OnPickup 后统一进入 VideoCallAc
+```
+
+匹配结果需要跨 `MainAc` 配置重建保存；消费后清除，不能因旋转重复发起外呼。
+
+### 配置重建治理
+
+- `IncomingAc`、`FakeIncomingAc` 通过 `IncomingCallPageVM` 固定最终预览随机结果；播放器仍由 Activity 持有，重建时保存位置、播放意图和快照时间。
+- `VideoCallAc` 使用 `VideoCallPlaybackVM` 保存预录视频播放状态，使用 `VideoCallFreeTimeVM` 保存剩余时间和免费通话结束门控。
+- RTC 会话、频道成员和通话计时继续由 `CallManager` 持有；Activity 重建只创建并绑定新的本地/远端 Surface，不重新发起通话或加入频道。
+- `UiVideoCallMessageVM` 持续转接聊天室消息，避免 Activity 重建空窗丢失消息；数据源附加必须幂等。
+- RTC 页面销毁时释放 Player、Adapter、动画和 View 回调，但不能因 View 销毁结束会话级业务。
+- 应用前后台由 `ProcessLifecycleOwner` 判断，不能使用 Activity started/stopped 计数立即
+  判定；横竖屏重建不会触发无通知权限的后台挂断。
+- 配置重建重点检查一次性副作用：外呼 API、接听信令、`OnOutgoingStarted`、
+  `OnPickup`、RTC join 和 `VideoCallAc` 导航均只能发生一次。
+
+### 后台通话
+
+- `CallForegroundService` 只在单次通话期间运行，声明 `camera|microphone` 类型；
+  外呼进入准备阶段或用户点击接听后启动，`CallStatus.IDLE`、会话释放或登出时停止。
+- 服务观察 `CallManager.state` 更新持续通知，不维护第二份通话状态。
+- 应用进入后台后，`CallManager` 保持 RTC、麦克风和远端音频，暂停实际本地视频采集；
+  回到前台后按用户原始视频意图恢复。
+- 通知连接前没有点击跳转；`CONNECTED` 后正文只返回 `VideoCallAc`。
+- 通知没有挂断 action，挂断继续由通话页面调用 `CallManager.hangupApi()`。
+- 外呼 `PREPARING` 阶段保存对应 Job；页面挂断会取消请求并立即重置状态，避免等待
+  同一 API Mutex 中的网络请求完成后仍继续拨号。
+- `CallNotificationPermissionFragment` 在相机/麦克风通过后协调说明 Dialog、系统通知
+  权限和应用通知设置页；结果通过 Fragment Result，不保存页面 callback。
+- 首次点击开启请求 `POST_NOTIFICATIONS`；是否曾请求过通过全局 `LocalPreferences`
+  记录，曾请求过但未开启时进入应用通知设置。该标记只决定交互路径，真实权限始终读取
+  系统状态。
+- 返回后调用 `CallManager.completePendingCallPermission()`，根据最终权限决定本次
+  通话是否允许后台继续。
+- 通知权限未开启仍允许前台呼叫，但 `CallManager` 会在应用真正进入后台时自动挂断；
+  权限开启则后台保留语音并暂停视频。
+- 普通外呼、来电接听、假来电确认和随机匹配命中后的外呼均使用同一权限协调链；
+  假来电先关闭模拟来电状态，随机匹配先取得目标用户，再保存 pending 外呼。
+- 后台策略只应用于 `OUTGOING/CONNECTING/CONNECTED`。若在 `PREPARING` 时已进入
+  后台，状态转为 `OUTGOING` 时会再次校验，避免漏掉自动挂断。
+- 打开系统通知授权或应用通知设置期间设置权限协调门控，避免系统页面切换被误判为普通
+  退后台并挂断。
+- 当前只支持“进行中的通话退后台继续”；后台收到的新来电仍不主动拉起页面。
+
+### RTC 修改约束
+
+- 新增呼叫入口必须经过 `CallPermissionRequester`，不能直接调用 `outgoingApi()`。
+- 新增通话页面不得自行启动 `VideoCallAc`；如需改变导航，先调整
+  `UserSessionContainer` 的唯一事件消费链。
+- 不要让前台服务、通知或 Activity 各自维护第二份通话状态。
+- 修改 `IDLE`、`PREPARING` 等状态语义前，必须走查假来电、pending 权限、外呼取消和
+  服务停止四条链路。
+- 验证 RTC 改动时至少覆盖真实来电、普通去电、假来电、随机匹配、通知允许/拒绝、
+  通话中旋转和真实退后台。
+
 ## 支付子系统
 
 ### 分层
@@ -337,6 +469,16 @@ pickup/reject/hangup/outgoing 等操作使用 `Mutex` 避免并发。
 价格展示和币种读取应通过 `PaymentRepository`/`ProductPriceCache`，避免 UI 自行解析 Billing 结果。
 
 支付成功后的充值、首充、新注册充值和高/中价值事件由 `UserSessionContainer` 统一上报。
+
+### 支付方式选择
+
+- `BillingManager` 保存单个 `PendingPaymentSelection`，内容是 requestId、期望 Activity 类型、用户/来源/商品参数和支付渠道列表，不保存函数。
+- 渠道请求完成后，`BillingManager` 重新取得同类型且已恢复的 Activity，在主线程同步安装 `PaymentSelectionResultFragment`，再展示 `SelectPaymentDia`。
+- `SelectPaymentDia` 只通过 Fragment Result 返回 requestId 和选中索引；取消返回 `-1`。
+- `PaymentSelectionResultFragment` 与 Dialog 使用同一 FragmentManager，固定 TAG、不同宿主各最多一个实例、不加入 Back Stack，并把结果转交给 `BillingManager.completePaymentSelection()`。
+- Fragment 的调试标签定义在 XML 中，仅 `BuildConfig.DEBUG` 显示。
+- Fragment 安装、pending 写入和 Dialog 展示必须在主线程完成；展示失败必须回滚 pending，宿主真正结束或 Billing 释放时也要清理。
+- 当前只保证配置重建连续性；进程死亡会丢失内存中的 pending，不自动恢复未完成支付。
 
 ## 埋点与归因
 
@@ -401,6 +543,23 @@ pickup/reject/hangup/outgoing 等操作使用 `Mutex` 避免并发。
 - Bottom Sheet 需要避让键盘时，通过 `WindowInsetsCompat.Type.ime()` 更新根布局 bottom margin。
 - `ViewExt.toggleIme()` 统一控制焦点和键盘。
 - `MessageDetailAc` 的 IME 逻辑是聊天输入区参考。
+- 可恢复 Dialog 不再使用对外字段 callback：参数放 arguments，结果通过 Fragment Result 返回。
+- `GiftDia`、`MarketSourceDia`、`TopSelectCountryDia` 和 `MessageActionDia` 是 Fragment Result 参考。
+- `MoreDia` 的举报跳转在 Dialog 内通过同一 FragmentManager 打开 `ReportDia`。
+- `UserSessionManager` 不持有 Activity，也不直接创建 AlertDialog；登录重试和会话提示由所属页面展示 `MessageActionDia`。
+
+## Target API 37 项目关注点
+
+- 工程已切换到 `compileSdk/targetSdk 37`。
+- 后台通话采用前台服务：后台保留语音、暂停视频，返回前台恢复视频。
+- `sw >= 600dp` 上固定方向和不可调整限制将彻底失效；现有 API 36 生命周期治理是升级基础，完整 RTC/支付/自由窗口矩阵仍由测试验收。
+- 业务代码未发现局域网访问，不申请 `ACCESS_LOCAL_NETWORK`；仍需厂商确认 Agora/
+  RongCloud 内部实现。
+- Release 已停止信任用户 CA，Debug 保留抓包；Release BODY 日志已关闭。
+- 第三方支付仍可能返回 HTTP，因此 cleartext 和 WebView mixed content 暂未关闭，
+  需要支付后端逐渠道确认 HTTPS。
+- 验证 Agora、RongCloud、PAG、SVGA、xlog、Crashlytics NDK 等原生 SDK 的 API 37、无锁 MessageQueue、只读动态加载文件和 16 KB page size 兼容性。
+- 审计来电、IM 推送、通知和支付是否依赖后台直接启动 Activity；优先使用通知、合规全屏 Intent 或 Telecom。
 
 ## XML 与资源
 
@@ -416,10 +575,11 @@ pickup/reject/hangup/outgoing 等操作使用 `Mutex` 避免并发。
 
 ## 已知历史边界
 
-- `BaseFragmentV2` 未清理 binding。
 - `SessionPersistenceImpl` 仍使用 SharedPreferences，而用户偏好使用 DataStore。
 - `ExceptionHandle` 同时承担 toast 和会话退出等全局副作用。
 - `MainAc`、`MessageDetailAc`、`CallManager`、`BillingManager`、`UserSessionContainer` 体量较大，修改前需先定位子流程，避免继续扩张职责。
+- 支付方式选择的 pending 只存在内存中，支持配置重建但不支持进程死亡恢复。
+- RTC 完整业务阶段的旋转、锁屏、后台和挂断边界仍需测试矩阵验收。
 - `NetworkConnectObserver.cleanup()` 存在，但应用级观察器通常随进程存在。
 - 旧分页状态和 Paging 3 并存。
 - 部分文件保留大量注释掉的历史代码；新实现不要复制。

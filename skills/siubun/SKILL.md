@@ -41,6 +41,17 @@ description: 按 SiuBun 的 Android/Kotlin 个人代码与设计风格实现或�
 - 每个长生命周期对象必须有对称的初始化和释放路径。释放应包括取消 Job/scope、注销监听、断开 SDK、清空引用和关闭客户端。
 - 登出与删除账号的清理语义应分开：普通用户数据可在登出清理；明确需要跨登录保留的会话偏好只在删除账号时清理。
 
+### 配置变化与重建
+
+- 把 Activity/Fragment 重建视为 View 容器替换，不是业务流程重新开始。重建时可以重新绑定 View、Adapter、Surface 和收集器，不能重新提交登录、支付、匹配、通话或消息等副作用。
+- 长时间运行的业务放入 ViewModel、会话 Manager 或应用级对象；View 销毁只释放 View 资源，不能顺带结束更长生命周期的业务。
+- 需要跨重建继续的 UI 结果必须是可观察状态；无回放事件只适合允许在重建空窗丢弃的视觉反馈。
+- 区分配置重建与进程死亡。内存状态只承诺配置重建连续性；需要支持进程恢复时，必须显式选择 `SavedStateHandle`、持久化存储或可重放的领域状态。
+- 配置重建验证不仅检查崩溃，还要检查重复请求、重复导航、重复权限、重复支付、重复信令、倒计时重置和旧 View 引用。
+- 页面初始化必须拆分“可重复绑定”和“只执行一次的业务”。`setupViews()` 可以重复设置 View、监听器和状态收集，但不能默认包含网络提交、匹配、支付或通话启动。
+- 配置变化期间旧页面可能先 `onStop()`、新页面稍后 `onStart()`；应用前后台状态使用 `ProcessLifecycleOwner` 等进程级来源，不以单个 Activity 生命周期直接推断。
+- 倒计时和媒体续播保存业务时间基准或单调时钟快照，不保存旧页面 ticker；新页面根据当前时间重新计算显示值。
+
 ## 状态、事件与 MVI
 
 - 持续可渲染的数据使用 `StateFlow`；一次性导航、弹窗、提示和命令使用 `SharedFlow` 或明确的 `UiEvent`。
@@ -85,6 +96,11 @@ val uiEvent = _uiEvent.asSharedFlow()
 - 当渠道或实现可替换时使用 Strategy；策略负责具体能力，订单、状态和业务规则仍由上层编排。
 - 状态机必须定义合法状态和事件，由单一 Manager 负责流转。UI 只观察状态并发出意图，不能直接改内部状态。
 - 高频事件或通知使用队列、节流、去重或合并策略，避免每个原始事件直接触发 UI。
+- RTC、播放器等业务状态与 View Surface 分离：Manager/VM 持有会话和播放语义，Activity/Fragment 只在新 View 上重新绑定 Surface。
+- 媒体需要跨重建续播时，保存播放位置、播放意图和单调时钟快照；恢复时按经过时间补偿，并对总时长或循环规则做边界处理。
+- 跨页面状态机的导航事件必须有唯一消费者。页面可以观察相同状态用于渲染和关闭自身，但不能各自重复执行同一个业务跳转。
+- Service 是长生命周期能力载体，不是第二套业务状态机。它观察 Manager 状态、提供系统要求的存活能力和通知展示，不反向推导或创建来电、去电、匹配等业务页面。
+- 状态机中的过渡状态不能被 UI 擅自解释为终止。例如业务为了切换流程短暂回到空闲态时，页面不能仅凭该状态立即销毁，除非状态协议明确如此。
 
 ## Activity、Fragment 与 ViewBinding
 
@@ -92,17 +108,39 @@ val uiEvent = _uiEvent.asSharedFlow()
 - Activity/Fragment 保持薄：绑定 View、设置 Adapter、收集状态、导航、权限与系统 UI；请求和状态计算下沉。
 - Activity 使用统一基类承载 ViewBinding、Edge-to-Edge 和系统栏策略。
 - Fragment 的 binding 生命周期必须与 View 生命周期一致。若基类使用 `lateinit binding`，不得在 `onDestroyView()` 后持有 View、Job、回调或 Adapter 引用；新增基类时优先采用可空 backing field 并清空。
+- Fragment 的 Flow 收集、Adapter、动画、播放器监听、Insets listener 和任何读取 binding 的任务都绑定 `viewLifecycleOwner`，并在 `onDestroyView()` 对称解除。
+- 基类不要自动调用依赖登录态、参数校验或其他门控的 `setupViews()`；由子类在前置条件满足后显式初始化，避免提前访问未准备好的会话依赖。
+- ViewModel、Manager 和 Service 不持有 Activity、Fragment、ViewBinding、View 或页面 lambda。需要 UI 时发布状态/事件，由当前可用页面处理。
 - 点击复用项目已有防抖扩展；不要重复实现计时器。
 - 导航参数优先使用 Intent/arguments 的稳定键和可序列化数据；短生命周期回调只在无法序列化且生命周期明确时使用。
+
+### 导航和页面关闭
+
+- 先确定每个业务导航的唯一拥有者：页面、导航协调层或会话容器只能选一个。
+- 状态变化和导航事件分开：状态负责可重放渲染，事件负责一次性跳转；不要在多个页面的同一状态分支重复 `startActivity()`。
+- 发起页收到成功事件时可以关闭自身，但应避免在统一导航协调者取得当前宿主之前抢先销毁，防止导航竞态。
+- 通知点击只恢复已经存在且语义明确的页面；不要根据中间状态重新创建会触发业务副作用的过渡页面。
 
 ## Dialog、Bottom Sheet 与键盘
 
 - 居中弹窗使用统一基类处理透明背景、宽度和默认取消策略；产品明确要求前不要改变关闭行为。
 - Dialog 的 binding 使用可空 backing field，并在 `onDestroyView()` 清空；同时取消与 View 绑定的 Job、动画和回调。
 - Bottom Sheet 统一处理透明父背景、顶部圆角、固定 TAG 和展示入口。
-- 参数优先放 `arguments`；回调属性只用于不可序列化的短生命周期交互。
+- 参数优先放 `arguments`。需要系统恢复或配置重建的 Dialog 不使用字段 Lambda、静态 callback Map 或构造 callback，结果通过 Fragment Result 或可恢复状态返回。
+- 跨多个 Activity/Fragment 的长流程由 Manager 保存待处理业务上下文，而不是保存函数。必要时使用无业务 UI 的协调 Fragment，在同一 FragmentManager 中接收 Dialog 结果并转交 Manager。
+- 协调 Fragment 使用固定 TAG 保证同一宿主只有一个实例，不加入 Back Stack；返回键应关闭业务 Dialog 或宿主，不额外消费一次返回。
+- Fragment 事务、Dialog 展示和 View 操作必须在主线程完成。若先写 pending 状态再展示 UI，展示失败必须回滚，宿主真正结束和所属 Manager 释放时也要清理。
 - 需要避让键盘时使用 `WindowInsetsCompat.Type.ime()`，更新根容器 margin/padding；不要根据屏幕高度猜测键盘。
 - 显示/隐藏键盘复用统一扩展，保证焦点与 IME 状态同步。
+
+### 权限和跨页面待处理操作
+
+- 权限属于 UI 与系统交互，但权限通过后要继续的业务参数属于 ViewModel/Manager；保存目标 ID、来源、模式等业务语义，不保存 callback。
+- 权限流程顺序明确为：保存 pending 业务 -> 请求系统权限/设置 -> 读取最终系统状态 -> 完成或取消 pending 业务。
+- 系统权限页和设置页可能导致宿主重建。使用 Activity Result API 和固定 TAG 的协调 Fragment 时，延迟到 Fragment 已附着后再访问 Activity 或会话依赖，禁止在构造期调用 `requireActivity()`。
+- 持久化的“是否请求过权限”只用于选择交互路径，不能当作真实授权结果；最终权限始终读取系统 API。
+- 与账号无关的权限提示历史使用全局 DataStore；用户或会话相关状态按对应生命周期保存，不额外创建零散 SharedPreferences。
+- 用户拒绝权限时必须显式完成或清除 pending 操作，不能留下“仍在处理中”的假状态阻塞下一次请求。
 
 ## RecyclerView、DiffUtil 与 Paging
 
@@ -144,6 +182,14 @@ val uiEvent = _uiEvent.asSharedFlow()
 5. 新实现是否复用了现有资源、扩展、Factory、缓存和列表模式。
 6. 是否同时覆盖项目已有的 flavor/build variant。
 7. 运行最小范围的现有编译、测试或 lint；没有测试时至少编译受影响变体。
+
+## Target SDK 升级方法
+
+- 先区分三类内容：target SDK 强制行为、同系统版本下所有应用的运行变化、可选体验增强。只有第一类直接进入升级阻塞清单。
+- 推荐先提升 `compileSdk` 并暂时保留旧 `targetSdk`，解决编译、AndroidX 和第三方依赖兼容；再逐项启用兼容变更，最后切换 target。
+- 对 IM、RTC、支付、推送、媒体和 WebView 等 SDK 驱动模块，除代码审计外还要取得厂商兼容声明，并在真实设备验证后台、权限、网络和原生库行为。
+- 原生依赖不能只验证 APK 可安装或 ZIP 对齐；还要覆盖目标 page size、ABI、动态加载规则和 SDK 实际执行路径。
+- 大屏合规只修复方向限制失效后暴露的状态丢失、遮挡和不可操作问题；双栏、侧边导航和视觉扩展属于产品体验优化，应单独立项。
 
 ## 维护原则
 
