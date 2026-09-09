@@ -1,0 +1,646 @@
+---
+name: pkginfo
+description: 走读、比较或更新 ~/AndroidStudioProjects 下 siubun_* Android 包的业务差异时使用。记录各包当前分支和提交，以及 VIP、Discover、通话结束、商店、Moment/Feed、价格、签到、免打扰、随机匹配、评分和挂断限制等行为。
+---
+
+# Siubun 包业务行为矩阵
+
+> 更新时间：2026-09-09
+>
+> 对话 / 会话 ID：`9b275586-4f98-464c-98a5-a90472a410fc`
+>
+> 工作区：`/Users/jason/AndroidStudioProjects`
+>
+> 范围：当前检出的全部 34 个 `siubun_*` Git 仓库
+>
+> 性质：代码走读快照，不代表服务端配置在所有环境中的最终取值
+
+## 使用说明
+
+本文档用于长期记录同源 Android 包之间的业务差异。结论以文首记录的分支和提交为准。
+更新代码、切换分支或重新合并上游后，必须重新检查对应主题。
+
+走读规则：
+
+- 只把当前工作树中的活动代码计入结论，注释代码和无调用入口的遗留类不视为已启用。
+- “VIP 拦截”指客户端在发起普通付费呼叫前主动阻断非 VIP；中央 `CallManager` 没有统一
+  VIP 校验时，单个页面的检查不能视为全局强制。
+- “评分已启用”表示代码链存在；实际展示通常仍要求服务端
+  `ratingDialogSwitch == "y"`。
+- “无 Feed”表示没有独立且可达的 Feed 页面；Moment 或 Discover 列表不自动等同 Feed。
+- 路径中的类名后缀可能因项目而异：`Activity/Ac/Act`、`Fragment/Frag`、
+  `ViewModel/VM` 表示同一职责族。
+
+## 修订快照
+
+| 仓库 | 分支 | HEAD |
+|---|---|---|
+| `siubun_cupid` | `feature/moment` | `4dc4942a965d` |
+| `siubun_cupidlite` | `feature/merge` | `89dcc0a015e4` |
+| `siubun_cupidplus` | `merge` | `e4d61bff6f9b` |
+| `siubun_fastcall` | `feature/vip_change` | `0058b61309cf` |
+| `siubun_fastcalllite` | `feature/vip_dev` | `f7f805bd8d5c` |
+| `siubun_fastcallpro` | `feature/vip_dev` | `2f793e9e0e00` |
+| `siubun_lemie` | `main` | `cb6bc1e4e82d` |
+| `siubun_lumi` | `main` | `037948833471` |
+| `siubun_lumilite` | `main` | `0315a8c6dca2` |
+| `siubun_lumipro` | `main` | `247536102f29` |
+| `siubun_matchat` | `feature/vip_change` | `424331c1b0fe` |
+| `siubun_matchatlite` | `feature/vip_change` | `e547092a993f` |
+| `siubun_matchatplus` | `feature/vip_change` | `106c8c0fe437` |
+| `siubun_matchatpro` | `feature/vip_change` | `d91e18251e00` |
+| `siubun_mitalk` | `feature/change` | `02a9072240c8` |
+| `siubun_mitalklite` | `feature/change` | `2e638993baeb` |
+| `siubun_mitalkpro` | `main` | `75748f695a10` |
+| `siubun_mitalku` | `feature/vip_change` | `2351edb3f55f` |
+| `siubun_mojoin` | `feature/vip_change` | `57d444b33f24` |
+| `siubun_ollo` | `feature/change` | `71fcfbeb0741` |
+| `siubun_ollochat` | `main` | `cdcd9b457868` |
+| `siubun_ollolite` | `feature/change` | `9c8c95d2c382` |
+| `siubun_ollopro` | `feature/change_conversation` | `b1b6a60954d8` |
+| `siubun_suki-opt` | `change/new-main-vip` | `4a9617dc8879` |
+| `siubun_sukilite-opt` | `feature/change` | `5820425e88d4` |
+| `siubun_sukiplus-opt` | `feature/merge` | `9ceb75a226ad` |
+| `siubun_sukipro-opt` | `feature/change` | `5f09368fd0c8` |
+| `siubun_vmeet` | `feature/change` | `075237359166` |
+| `siubun_vmeetlite` | `feature/change` | `b3c6daef6cf5` |
+| `siubun_vmeetpro` | `feature/vip_change` | `04c3ad9f2be4` |
+| `siubun_yami` | `feature/vip` | `31a6568dfbbd` |
+| `siubun_yamie` | `feature/change` | `482b66014f9e` |
+| `siubun_yamilite` | `feature/change` | `29d8b906be1b` |
+| `siubun_yamipro` | `feature/change` | `d2a559285b86` |
+
+## 快速总览
+
+| 包组 | 通话前 VIP | Discover 促销 | 通话完成 | Moment / Feed | VIP 折扣价 | 签到 | Mine 免打扰 | 随机匹配 | 评分 | 5 秒禁挂 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Cupid 三包 | 无 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | 无 | Popular 内嵌 | 有 | 有 |
+| Suki VIP | 多入口拦截，但 Discover 有漏洞 | VIP/金币双入口，VIP 注册倒计时 | VIP/余额/充值分流 | 有 / 无 | 无 | 无 | 无 | 独立 Match Tab | 有 | 有 |
+| Suki Lite/Plus/Pro | 仅“继续匹配”有 VIP 限制 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | 无 | 独立 Match Tab | 有 | 有 |
+| Fastcall 三包 | 无全局拦截 | 非 VIP 套餐入口，30 分钟循环 | VIP/余额/充值分流 | 主入口隐藏 / 无 | 无 | 有 | 代码有但 UI 隐藏 | 独立全屏 | 有 | 有 |
+| Vmeet/VmeetLite | 无 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | UI 隐藏 | 独立全屏 | 有 | 有 |
+| VmeetPro | 无 | 非 VIP 订阅入口，30 分钟循环 | VIP/余额/充值分流 | 主入口隐藏 / 无 | 无 | 有 | UI 隐藏 | 独立全屏 | 有 | 有 |
+| Yami | 部分拦截，New/Following 有漏洞 | VIP/金币双入口，注册倒计时 | VIP/余额/充值分流 | 主入口隐藏 / 无 | 无 | 有 | UI 隐藏 | Popular 内嵌 | 有 | 有 |
+| Yamie/Lite/Pro | 无 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | UI 隐藏 | Popular 内嵌 | 有 | 有 |
+| Lemie/Lumi/Lite/Pro | 无 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | 1 小时 | Popular 悬浮条 | 有 | 有 |
+| Mitalk/Lite/Pro | 无 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | 1 小时 | 底部导航入口 | 有 | 有 |
+| MitalkU | 无 | 非 VIP 订阅入口，30 分钟循环 | VIP/余额/充值分流 | 有 / 有 | 部分，有格式风险 | 有 | 1 小时 | 底部导航入口 | 有 | 有 |
+| Matchat 四包 | 无 | 非 VIP 订阅入口，30 分钟循环 | VIP/余额/充值分流 | 有 / 有 | 完整支持 | 有 | 1 小时 | 底部按钮→弹层 | 有 | 有 |
+| Mojoin | 无 | badge 6 首充，30 分钟循环 | VIP/余额/充值分流 | 主入口隐藏 / 无 | 无 | 有 | 1 小时 | Popular 内嵌 | 有 | 有 |
+| Ollo/Chat/Pro | 仅 New 卡片拦截 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | 无 | Popular 悬浮条→全屏 | 有 | 有 |
+| OlloLite | 仅 New 卡片拦截 | badge 5 首充，无倒计时 | 首充弹窗或评价 | 有 / 无 | 无 | 无 | 无 | Popular 悬浮条→全屏 | **无** | **无** |
+
+## 1. 发起通话前是否强制 VIP
+
+### 结论
+
+没有任何包在中央 `CallManager` 中统一校验 VIP。所有强制行为均依赖页面点击入口，因此只要
+某个入口遗漏，就不能称为真正的全局强制 VIP。
+
+| 分类 | 包 | 规则 |
+|---|---|---|
+| 较广泛 VIP 拦截 | `siubun_suki-opt` | Profile、相册、消息、通话记录、来电、假来电、匹配、通话后重拨等付费路径检查 VIP；Discover 三个子页的卡片呼叫没有检查，存在绕过入口 |
+| 部分 VIP 拦截 | `siubun_yami` | Profile、相册、Popular、消息、通话记录、来电、假来电、匹配等检查；New、Following 卡片呼叫未检查 |
+| 单页面拦截 | Ollo 四包 | New 列表给非 VIP 显示模糊拦截层并弹 `BecomeVipDia`；Popular、Following、Profile 等仍可呼叫 |
+| 仅继续匹配拦截 | Suki Lite/Plus/Pro | `RandomMatchCompleteActivity` 的“再匹配”检查 VIP；其他普通通话入口不检查 |
+| 无 VIP 通话拦截 | 其余包 | 只检查通话状态、权限、余额或免费次数，不检查 VIP |
+
+主要证据：
+
+- `rtc/manager/CallManager.*`：中央发起入口只检查 `CallStatus.IDLE`。
+- `ui/act/Profile*`、`MediaGallery*`、`conversation/MessageDetail*`。
+- `discover/Popular*`、`New*`、`Following*`。
+- `rtc/view/Incoming*`、`FakeIncoming*`、`match/*`。
+
+## 2. Discover 右下角促销入口与倒计时
+
+### A. badge 5 首充金币入口，无活动倒计时
+
+包含：
+
+- Cupid 三包
+- Suki Lite/Plus/Pro
+- Vmeet、VmeetLite
+- Yamie、Yamilite、Yamipro
+- Lemie、Lumi、LumiLite、LumiPro
+- Mitalk、MitalkLite、MitalkPro
+- Ollo、OlloChat、OlloLite、OlloPro
+
+规则通常为：
+
+```text
+type == 0
+&& initialChargeRecommend == 1
+&& badge == "5"
+&& wallet.charged == false
+```
+
+点击打开 `CoinsComboDia` 或 `CoinsBadgeComboDialog`。布局可能保留时间 TextView，但循环代码
+已注释，不存在实际递减。OlloLite 点击时只重新查 badge 5，没有再次要求 coin/首充属性，
+比显示规则宽。
+
+### B. 非 VIP 订阅/套餐入口，30 分钟循环倒计时
+
+| 包 | 选品 | 可见条件 | 点击 |
+|---|---|---|---|
+| Fastcall 三包 | 同时读取 badge 6 和订阅商品，最终入口按非 VIP 展示 | `wallet.isVip == false` | `NewComboDia` |
+| `siubun_vmeetpro` | 第一项订阅商品 | `wallet.isVip == false` | `NewComboDia` |
+| Matchat 四包 | 第一项订阅商品 | `wallet.isVip == false` | `NewComboDia` |
+| `siubun_mitalku` | 第一项订阅商品 | `wallet.isVip == false` | `NewComboDia` |
+
+倒计时来自会话级 `CountdownManager`：
+
+```text
+30:00 开始
+每秒 -1
+低于 0 后重置为 30:00
+不隐藏入口，不代表优惠真实过期
+```
+
+### C. badge 6 套餐首充入口
+
+`siubun_mojoin` 使用 `filterBadge6()`：
+
+- badge 6 商品不存在时隐藏。
+- 若商品是首充推荐，则仅未充值用户显示。
+- 若不是首充推荐，则始终显示，包括 VIP 用户。
+- 显示同一套 30 分钟循环倒计时。
+
+### D. VIP/金币双入口与真实注册倒计时
+
+`siubun_suki-opt`：
+
+- VIP 用户：隐藏 VIP 入口；未充值且存在 badge 5 首充金币品时显示金币入口。
+- 非 VIP：隐藏金币入口；存在 `type == 1 && badge == "3"` 的 VIP 商品且注册剩余时间大于
+  0 时显示 VIP 入口。
+- VIP 入口按注册剩余秒数每秒递减，到 0 后隐藏。
+- 点击分别进入 `VipStoreActivity` 和 `CoinsBadgeComboDialog`。
+
+`siubun_yami`：
+
+- VIP 用户：显示未充值金币入口。
+- 非 VIP：显示 Weekly VIP 入口。
+- VIP 入口使用注册剩余时间倒计时，到 0 后隐藏。
+- 点击分别进入 `CoinsComboDia` 和 `WeeklyVipDia`。
+
+主要证据：
+
+- `discover/DiscoverFrag*` / `DiscoverFragment*`
+- `repository/PaymentRepository*`
+- `entity/StoreGoods*`
+- `utils/CountdownManager*`
+
+## 3. 通话完成后的判断流程
+
+入口统一来自 `UserSessionContainer` 收集 `CallEvent.OnComplete`。
+
+### 标准首充/评价流程
+
+适用：
+
+- Cupid 三包
+- Suki Lite/Plus/Pro
+- Vmeet/VmeetLite
+- Yamie/Yamilite/Yamipro
+- Lemie/Lumi/LumiLite/LumiPro
+- Mitalk/MitalkLite/MitalkPro
+- Ollo 四包
+
+流程：
+
+```text
+显示通话完成 Toast
+→ 延迟 1 秒
+→ 查找 initialChargeRecommend == 1、type == 0、badge == "5" 的商品
+→ 商品存在且用户从未购买金币：首充组合弹窗
+→ 否则：通话评价弹窗
+→ 除 OlloLite 外，继续计算 App 评分弹窗资格
+```
+
+Suki Lite/Plus/Pro 在随机匹配通话结束后还会先进入
+`RandomMatchCompleteActivity`。
+
+### VIP/余额/充值分流
+
+通用决策树：
+
+```text
+非 VIP
+→ WeeklyVip/Vip 弹窗
+
+VIP 且金币 > 0
+→ 通话评价弹窗
+
+VIP 且金币 == 0 且 charged == true
+→ 普通金币商店
+
+VIP 且金币 == 0 且 charged == false
+→ 新用户/套餐首充弹窗
+```
+
+适用及末级商品差异：
+
+| 包 | 未充值末级商品 |
+|---|---|
+| Fastcall 三包 | badge 6 |
+| VmeetPro | 第一项订阅商品 |
+| Yami | badge 5 |
+| Suki VIP | badge 5 |
+| Matchat 四包 | 第一项订阅商品 |
+| MitalkU | 第一项订阅商品 |
+| Mojoin | `initialChargeRecommend && badge == "6"` |
+
+注意：若末级商品为空，部分实现会 `return@collect`，从而不显示本轮结束弹窗。
+
+主要证据：
+
+- `session/UserSessionContainer.*`
+- `ui/dialog/CallOverReview*`
+- `ui/dialog/Coins*Combo*`
+- `ui/dialog/NewCombo*`、`NewStore*`、`WeeklyVip*`、`VipDialog*`
+
+## 4. 商店商品样式、筛选和 badge
+
+### 基础字段
+
+| 字段 | 常见含义 |
+|---|---|
+| `type == 0` | 金币商品 |
+| `type == 1` | VIP/订阅商品 |
+| `initialChargeRecommend == 1` | 首充推荐 |
+| `badge == "1"` | Save/折扣比例 |
+| `badge == "2"` | Popular |
+| `badge == "3"` | 新用户专享 |
+| `badge == "4"` | Bonus/赠送比例 |
+| `badge == "5"` | Best value/首充组合 |
+| `badge == "6"` | 套餐首充；不是所有包都定义或展示该标签 |
+| `storeType == "ONE_TIME"` | 消耗型商品 |
+| `storeType == "SUBSCRIBE"` | 订阅商品 |
+
+通常允许购买：
+
+```text
+type == 0
+|| (type == 1 && cycleType > 0 && cycleValue > 0)
+```
+
+### 常见 ViewType
+
+1. badge 3 或 5：推荐/大卡样式。
+2. 普通金币：标准金币卡片。
+3. 新版统一商店中，订阅商品：VIP bonus 样式。
+
+Fastcall 三包、VmeetPro、Matchat 四包、Mojoin 使用 `NewStoreAdapter` 风格的统一商店：
+
+- 非 VIP：金币商品 + 第一项订阅商品。
+- VIP：只显示非订阅商品。
+- badge 3/5 优先使用推荐样式。
+- 订阅商品使用 VIP 样式。
+
+其他包多为 `CoinStoreAdapter` 与 `VipStoreAdapter` 分离。
+
+### 商品倒计时
+
+| 类型 | 规则 |
+|---|---|
+| badge 3 | 持久化约 24 小时；到期移除。部分旧分支已注释该入口 |
+| badge 5 | 5 分钟倒计时；到期重新开始，形成循环 |
+| 其他首充商品 | 使用注册剩余时间；到期移除 |
+| 普通商品 | 无倒计时 |
+
+样式主题差异：
+
+- Cupid：粉色系；CupidPlus 偏紫。
+- Suki：灰金；SukiPro 的倒计时区域使用粉紫渐变。
+- Lumi：亮色。
+- Mitalk：深色/渐变。
+- Matchat：统一三样式商店。
+
+主要证据：
+
+- `entity/StoreGoods.*`
+- `viewmodel/StoreVM*`、`StoreViewModel*`、`StoreBadgeViewModel*`、
+  `NewStoreVM*`、`VipVM*`
+- `ui/adapter/CoinStoreAdapter*`、`CoinBadgeStoreAdapter*`、
+  `NewStoreAdapter*`、`VipStoreAdapter*`
+
+## 5. Moment 模块与 Profile Moment 子页
+
+| 状态 | 包 |
+|---|---|
+| Main Moment 与 Profile Moment 均启用 | Cupid 三包、Suki 四包、Vmeet/VmeetLite、Yamie/Yamilite/Yamipro、Lemie/Lumi/LumiLite/LumiPro、Mitalk/MitalkLite/MitalkPro、Matchat 四包、Ollo 四包 |
+| Main Moment 隐藏，Profile Moment 启用 | VmeetPro、Yami |
+| Main Moment 与 Profile Moment 均隐藏 | Fastcall 三包、Mojoin |
+
+Profile 常见结构：
+
+- Cupid：Moment / Video / Gift。
+- Suki：Profile / Moment。
+- Ollo：Moment / Video / Gift。
+- 其余常见为 Gift / Moment / Video。
+
+证据：
+
+- `ui/act/Main*`
+- `moment/MomentMain*`
+- `ui/act/Profile*`
+- `moment/PersonalMoment*`
+
+## 6. Feed 页面
+
+只有以下包存在活动 Feed：
+
+| 包 | 形式 |
+|---|---|
+| Matchat 四包 | Moment 页第一子页；纵向分页卡片，每卡横向相册，首个完整可见卡片自动轮播 |
+| MitalkU | Moment 页第一子页；纵向分页，卡片内横向封面和自动轮播 |
+
+其余包没有独立可达的 Feed 页面。资源名中的 `feed` 渐变图不计为 Feed 模块。
+
+证据：
+
+- `moment/FeedFrag*`
+- `moment/FeedVM*`
+- `ui/adapter/FeedPagingAdapter*`
+- `moment/MomentMain*`
+
+## 7. Profile、相册、呼叫/来电页的 VIP 折扣价
+
+### 完整支持
+
+Matchat 四包：
+
+- 折扣价约为 `round(originalPrice * vipCallDiscount)`。
+- Profile 和相册：
+  - VIP 主价格显示折后价。
+  - 非 VIP 显示原价，并展示 VIP 折扣提示价。
+- Outgoing、Incoming、FakeIncoming：
+  - VIP 显示折后价。
+  - 非 VIP 显示原价。
+
+### 部分支持但存在风险
+
+MitalkU：
+
+- Profile 正常展示原价、折后价和删除线。
+- Outgoing、Incoming、FakeIncoming 尝试展示折后价。
+- 当前折扣值为 `Int`，却使用 `"%.2f"` 格式化，VIP 路径可能抛出
+  `IllegalFormatConversionException`。
+- 相册页没有价格。
+
+### 未支持
+
+其余包没有在这些页面应用 VIP 折扣；呼叫/来电页直接显示原始 `anchor.price`，
+Profile/相册多数只显示免费标签或呼叫按钮。
+
+主要证据：
+
+- `ui/act/Profile*`
+- `ui/act/MediaGallery*`
+- `rtc/view/Outgoing*`、`Incoming*`、`FakeIncoming*`
+- `config/LocalEnv*`
+
+## 8. 签到入口
+
+| 入口 | 包 |
+|---|---|
+| Discover | Fastcall 三包、VmeetPro、Yami、Matchat 四包、Mojoin、MitalkU |
+| Mine | Matchat 四包、Mojoin、MitalkU |
+| Moment | Matchat 四包、MitalkU |
+| 无签到入口 | 其余包 |
+
+签到实现通常由以下文件组成：
+
+- `ui/dialog/CheckInDia*`
+- `viewmodel/CheckInVM*`
+- `api/UserSessionConfigApi*`
+- `entity/CheckInProgressEntity*`
+
+只存在 `SIGN_IN` 枚举、交易类型注释或 `needSignIn` 参数，不视为用户可见签到入口。
+
+## 9. Mine 免打扰
+
+### 可用的一小时本地免打扰
+
+Matchat 四包、Mojoin、Lemie/Lumi/LumiLite/LumiPro、Mitalk/MitalkLite/MitalkPro、
+MitalkU：
+
+```text
+开启 → 保存当前时间
+关闭 → 保存 0
+当前时间 - 开启时间 <= 1 小时 → 视为开启
+主要抑制 FakeIncoming，不拦截真实来电
+```
+
+### 有逻辑但 UI 隐藏
+
+Fastcall 三包、Vmeet/VmeetLite/VmeetPro、Yami、Yamie/Yamilite/Yamipro：
+
+- `MineFrag` 中仍有一小时状态逻辑。
+- 对应布局容器固定为 `visibility="gone"`。
+- 用户当前无法从 Mine 操作。
+
+### 不存在
+
+Cupid 三包、Suki 四包、Ollo 四包。
+
+RongCloud 会话自身的免打扰/未读规则不等同于 Mine 免打扰。
+
+## 10. Discover 国家筛选按钮
+
+### 通用结论
+
+- 当前没有包对国家筛选点击执行活动的 VIP 拦截。
+- 少数源码中保留的 VIP 判断为注释，不计入行为。
+- 国家过滤通常只影响 Popular，不影响 New/Following。
+
+| 展示形式 | 包 |
+|---|---|
+| 普通图标，国家列表非空即显示 | Cupid 三包、Lemie/Lumi/LumiLite/LumiPro、Mitalk/MitalkLite/MitalkPro、Ollo 四包 |
+| Popular 页水平国家条 | Suki 四包、Yami 系、Fastcall/Vmeet 系、Matchat 四包、Mojoin、MitalkU |
+| 图标代码存在但布局固定隐藏 | Matchat 四包的更多国家图标；水平 chips 仍可用 |
+| 图标可打开标准 Dialog | Cupid、Lumi、Mitalk、Ollo、Vmeet、Yami 等 |
+| 图标打开顶部筛选 Dialog | Fastcall 三包、Mojoin |
+
+可见条件一般为：
+
+```text
+currentPage == Popular
+&& countries.isNotEmpty()
+```
+
+点击后更新 `RegionVM`/`DiscoverViewModel` 的选中国家并刷新 Popular。
+
+## 11. 随机匹配形式
+
+| 形式 | 包 |
+|---|---|
+| Popular 页内嵌悬浮条/头像条 | Cupid 三包、Yami/Yamie/Yamilite/Yamipro、Mojoin、Lemie/Lumi/LumiLite/LumiPro、Ollo 四包 |
+| 独立 Match Tab | Suki 四包 |
+| 主底部导航中央 Match 动作 | Mitalk/MitalkLite/MitalkPro/MitalkU |
+| 底部中央按钮，命中后打开卡片式 `RandomMatchAc` | Matchat 四包 |
+| 独立全屏匹配过渡页 | Fastcall 三包、Vmeet/VmeetLite/VmeetPro |
+
+补充：
+
+- Cupid/Lumi/Ollo 的 Popular 悬浮条通常显示 4 个重叠头像并轮换。
+- Mojoin 在 Popular 底部显示 Match/Matching、头像和免费次数。
+- Fastcall 全屏页带背景模糊；Vmeet 系全屏页更简化。
+- Suki VIP 在无免费次数的匹配入口检查 VIP；Suki Lite/Plus/Pro 主要检查余额/金币。
+
+## 12. Discover 子页、轮播和呼叫按钮
+
+### 子页
+
+| 子页配置 | 包 |
+|---|---|
+| Popular / New / Following | 绝大多数包 |
+| Popular / Following | Matchat 四包、MitalkU |
+
+Matchat 和 MitalkU 虽保留 New 相关类，但当前未挂载到 Tab。
+
+### 列表轮播
+
+| 状态 | 包 |
+|---|---|
+| Popular 列表项活动轮播 | Fastcall 三包、VmeetPro、Yami、Mojoin |
+| Feed 卡片活动轮播 | Matchat 四包、MitalkU |
+| 有轮播基础设施但当前 Popular 数据/协调器未启用 | Matchat 四包 |
+| 静态单封面 | 其余包 |
+
+### 右下角呼叫按钮
+
+各系列基本遵循同一规则：
+
+- Popular：呼叫按钮恒定显示，消息/SayHi 隐藏；只有 `Free` 标签根据免费资格变化。
+- New/Following：
+  - 满足 `enableFreeCall && isAnchorFreeCallWithStatus(...)` 时显示免费呼叫。
+  - 否则显示消息/SayHi。
+
+因此 Popular 上看到呼叫图标不代表该次呼叫免费，也不代表已经通过 VIP 检查。
+
+证据：
+
+- `discover/DiscoverFrag*`
+- `ui/adapter/Popular*Adapter*`
+- `ui/adapter/New*Adapter*`
+- `ui/adapter/Following*Adapter*`
+- `CrossFadeImageCarouselView*`、`PopularCoverCoordinator*`
+
+## 13. App 评分弹窗
+
+除 `siubun_ollolite` 外，其余 33 个包均存在活动评分链。
+
+总开关：
+
+```text
+ratingDialogSwitch == "y"
+&& 本会话/用户尚未显示过
+```
+
+触发规则：
+
+1. 首次成功关注：
+   - `IS_FIRST_FOLLOW == true`
+   - 关注状态变为已关注
+   - 当前通话状态为 `IDLE`
+   - 尚未显示过评分
+2. 通话完成：
+   - 付费通话：首次付费通话。
+   - 免费虚拟通话：剩余免费次数达到代码指定节点（常见为 `1`）且 50% 随机命中。
+3. 通常延迟 3 秒显示。
+4. Like/正向按钮进入 Google Play In-App Review；中立/负向只关闭。
+
+注意：
+
+- 通话结束的首充、VIP 或评价弹窗与 App 评分资格独立计算，存在延迟后与其他弹窗竞争的可能。
+- Cupid 三包 Mine 头像还保留 Debug 手动触发。
+- OlloLite 没有 `AppRatingDia`、远程开关访问器和触发链。
+
+## 14. 拨打界面 5 秒内禁止挂断
+
+除 `siubun_ollolite` 外，其余 33 个包均启用：
+
+```text
+观察到 CallStatus.PREPARING
+→ ivHangup.isEnabled = false
+→ 延迟 5000 ms
+→ ivHangup.isEnabled = true
+```
+
+部分独立随机匹配过渡页也执行同样限制。
+
+OlloLite 的状态观察直接从 `OUTGOING` 等后续状态开始，没有 `PREPARING` 阶段的
+禁用/延迟，因此可立即挂断。
+
+证据：
+
+- `rtc/view/OutgoingActivity*`
+- `rtc/view/OutgoingAc*`
+- `rtc/view/OutgoingAct*`
+- 部分包的 `match/RandomMatch*`
+
+## 已知异常与需要优先复查的行为
+
+1. **MitalkU VIP 价格格式风险**
+
+   `roundToInt()` 的结果以 `"%.2f"` 格式化，VIP 呼叫/来电页可能崩溃。
+
+2. **OlloLite 缺失两项公共行为**
+
+   没有 App 评分链，也没有外呼前 5 秒禁挂；需确认是产品差异还是漏同步。
+
+3. **Suki VIP 拦截不完整**
+
+   多数入口强制 VIP，但 Discover Popular/New/Following 可绕过页面级检查。
+
+4. **Yami VIP 拦截不完整**
+
+   Popular 等入口有检查，New/Following 没有。
+
+5. **Ollo 系仅 New 页面拦截**
+
+   模糊层不是全局强制；其他页面仍可发起付费通话。
+
+6. **30 分钟促销倒计时不代表过期**
+
+   Fastcall、VmeetPro、Matchat、MitalkU、Mojoin 的倒计时到期后自动重置，入口持续存在。
+
+7. **通话结束弹窗可能与 App 评分竞争**
+
+   两条链独立运行，评分通常延迟 3 秒；没有统一的全局弹窗队列。
+
+8. **Fastcall/Vmeet/Yami 系 Mine 免打扰不可见**
+
+   代码仍存在，但布局固定隐藏，当前用户不能操作。
+
+## 代码证据索引
+
+每次更新优先检查以下职责文件，而不是只按类名全文搜索：
+
+| 主题 | 文件模式 |
+|---|---|
+| 通话入口与中央校验 | `rtc/manager/CallManager*`、`Profile*`、`MediaGallery*`、`MessageDetail*` |
+| Discover 促销与国家 | `discover/DiscoverFrag*`、`RegionVM*`、`CountryAdapter*` |
+| Discover 子页 | `PopularFrag*`、`NewFrag*`、`FollowingFrag*` |
+| 通话结束 | `session/UserSessionContainer*`、`CallOverReview*` |
+| 商品定义 | `entity/StoreGoods*`、`repository/PaymentRepository*` |
+| 商店列表 | `StoreVM*`、`NewStoreVM*`、`VipVM*`、各 Store Adapter |
+| Moment / Feed | `MomentMain*`、`PageMoment*`、`PersonalMoment*`、`FeedFrag*` |
+| VIP 价格 | `Profile*`、`MediaGallery*`、`Outgoing*`、`Incoming*`、`FakeIncoming*` |
+| 签到 | `CheckInDia*`、`CheckInVM*`、`UserSessionConfigApi*` |
+| Mine 免打扰 | `mine/Mine*`、`DSKey*`、`UserSessionContainer*` |
+| 随机匹配 | `Main*`、`PopularFrag*`、`MatchFrag*`、`RandomMatch*` |
+| App 评分 | `LocalEnv*`、`AppRatingDia*`、`UserSessionContainer*` |
+| 5 秒禁挂 | `rtc/view/Outgoing*`、`match/RandomMatch*` |
+
+## 后续更新流程
+
+再次走读时：
+
+1. 更新“修订快照”的分支和 HEAD。
+2. 优先对比上次 HEAD 到新 HEAD 的提交和文件差异。
+3. 只复查受影响主题及共用业务链，不机械重扫所有文件。
+4. 检查注释代码是否重新启用、入口是否新增、布局可见性是否改变。
+5. 更新“快速总览”“主题章节”和“已知异常”。
+6. 在文首追加新的更新时间和对话 ID；保留历史会话 ID，便于查询旧上下文。
