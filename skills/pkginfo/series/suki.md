@@ -125,20 +125,20 @@
 
 | # | 主题 | Suki VIP 工作分支 | Lite / Plus / Pro |
 |---|---|---|---|
-| 1 | 通话前 VIP | 多数付费入口拦截；Discover 三个列表仍可绕过 | 仅随机匹配完成后的“继续匹配”检查 VIP |
-| 2 | Discover 商品 | VIP/金币双入口；非 VIP 的 badge 3 VIP 商品按注册剩余时间倒计时 | badge 5 首充金币，无活动倒计时 |
-| 3 | 通话完成 | VIP、余额、充值状态分流 | badge 5 首充弹窗或评价；随机匹配后有完成页 |
-| 4 | 商店 | VIP/金币分开，支持 badge 3 注册时限 | 标准金币/VIP 商店；Pro 视觉有粉紫渐变 |
-| 5 | Moment | Main 与 Profile Moment | 相同 |
-| 6 | Feed | 无 | 无 |
-| 7 | VIP 折扣价 | 无 | 无 |
-| 8 | 签到 | 无 | 无 |
-| 9 | Mine 免打扰 | 无 | 无 |
-| 10 | 国家筛选 | 水平国家条可用，无 VIP 拦截 | 相同 |
-| 11 | 随机匹配 | 独立 Match Tab；无免费次数时检查 VIP | 独立 Match Tab；主要检查余额/金币 |
-| 12 | Discover | Popular/New/Following；无轮播 | 相同 |
-| 13 | App 评分 | 有 | 有 |
-| 14 | 5 秒禁挂 | 有 | 有 |
+| 1 | 通话前 VIP | Profile、相册、消息、通话记录、真实/假来电、匹配历史和继续匹配等付费路径会拦截非 VIP；但 Popular/New/Following 卡片呼叫没有相同检查，中央 `CallManager` 也不兜底，仍可绕过。 | 普通呼叫入口不强制 VIP；主要只有随机匹配完成页的“继续匹配”检查 VIP。 |
+| 2 | Discover 商品 | VIP 用户隐藏 VIP 入口，只在未充值且有 badge 5 商品时显示金币入口；非 VIP 隐藏金币入口，显示 `type == 1 && badge == "3"` 的 VIP 商品，按注册剩余时间倒计时，到 0 隐藏。 | 显示 badge 5 首充金币商品，仅未充值时可见；没有活动促销倒计时。 |
+| 3 | 通话完成 | 非 VIP 弹 VIP 引导；VIP 有金币时弹通话评价；VIP 无金币按是否充值进入普通金币商店或 badge 5 首充弹窗，并独立判断 App 评分。 | 未购买金币且有 badge 5 时弹首充，否则通话评价；随机匹配通话还会进入完成页。 |
+| 4 | 商店 | VIP 与金币商店分开；支持 badge 3 新用户注册时限和 badge 5 推荐样式，VIP 商店增加专属权益说明。 | 使用标准金币/VIP 商店，badge 3/5 采用推荐样式；SukiPro 倒计时区域使用粉紫渐变。 |
+| 5 | Moment | 主导航 Moment 与 Profile Moment 均活动可达。 | 三个衍生包也都可达。 |
+| 6 | Feed | 没有独立 Feed 页面。 | 相同。 |
+| 7 | VIP 折扣价 | Profile、相册、Outgoing、Incoming、FakeIncoming 都没有展示 VIP 通话折扣价。 | 相同。 |
+| 8 | 签到 | Discover、Moment、Mine 均没有活动签到入口。 | 相同。 |
+| 9 | Mine 免打扰 | Mine 没有一小时免打扰开关，也不通过本地时间抑制假来电。 | 相同。 |
+| 10 | 国家筛选 | Popular 页水平国家条可用，点击更新地区并刷新 Popular；没有 VIP 拦截，New/Following 不受筛选。 | 行为相同。 |
+| 11 | 随机匹配 | 随机匹配是独立主导航 Match Tab；免费次数耗尽且非 VIP 时弹 VIP，VIP 再进入金币/余额判断。 | 同样是独立 Match Tab，但主要按免费次数和金币判断；部分“继续匹配”动作才检查 VIP。 |
+| 12 | Discover | 挂载 Popular/New/Following，列表为静态单封面，无活动轮播。Popular 呼叫恒定；New/Following 按免费资格切换。VIP 工作分支的三个列表呼叫仍是门槛漏洞。 | 三包页面结构和按钮规则相同。 |
+| 13 | App 评分 | 受服务端开关和本地一次性标记控制，首次关注、首次付费通话或特定免费虚拟通话可触发，约 3 秒延迟。 | 三包规则相同。 |
+| 14 | 5 秒禁挂 | Outgoing 进入 `PREPARING` 后禁用挂断 5 秒，匹配相关过渡页也执行限制。 | 三包相同。 |
 
 ## VIP 分支特有内容
 

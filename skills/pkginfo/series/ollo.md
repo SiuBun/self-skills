@@ -21,20 +21,20 @@ Ollo、OlloChat、OlloPro 在 14 项范围内基本一致。OlloLite 缺少 App 
 
 | # | 主题 | Ollo / Chat / Pro | OlloLite |
 |---|---|---|---|
-| 1 | 通话前 VIP | 仅 New 卡片对非 VIP 显示模糊拦截 | 相同 |
-| 2 | Discover 商品 | badge 5 首充，未充值显示，无倒计时 | 显示相同；点击只按 badge 5 重查 |
-| 3 | 通话完成 | 首充弹窗或评价，再计算 App 评分 | 首充弹窗或通话评价；无 App 评分 |
-| 4 | 商店 | 金币/VIP 分页，badge 3/5 推荐样式 | 基本相同 |
-| 5 | Moment | Main Moment 与 Profile Moment | 相同 |
-| 6 | Feed | 无 | 无 |
-| 7 | VIP 折扣价 | 无 | 无；`vipCallDiscount` 配置字段也不存在 |
-| 8 | 签到 | 无 | 无 |
-| 9 | Mine 免打扰 | 无 | 无 |
-| 10 | 国家筛选 | Dialog 可用，无 VIP 拦截 | 相同 |
-| 11 | 随机匹配 | Popular 悬浮入口，再进入全屏过渡 | 相同 |
-| 12 | Discover | Popular/New/Following；无轮播 | 相同 |
-| 13 | App 评分 | 有 | **完全不存在** |
-| 14 | 5 秒禁挂 | 有 | **不存在，可立即挂断** |
+| 1 | 通话前 VIP | 只有 New 卡片对非 VIP 显示模糊遮罩并弹 `BecomeVipDia`；Popular、Following、Profile、相册等入口仍可呼叫，中央 `CallManager` 无 VIP 校验。 | 行为相同，因此也不是全局强制 VIP。 |
+| 2 | Discover 商品 | 右下角选择 badge 5 首充金币商品，仅未充值用户显示；点击首充组合弹窗。布局可能保留时间控件，但活动代码没有递减。 | 显示条件相同；点击时只按 badge 5 重查，没有再次校验金币类型和首充标记，范围更宽。 |
+| 3 | 通话完成 | 未购买金币且存在 badge 5 首充商品时弹首充，否则弹通话评价，随后独立计算 App 评分。 | 首充与通话评价流程存在，但没有 App 评分链。 |
+| 4 | 商店 | 金币/VIP 分页；badge 3/5 使用推荐样式，普通金币使用标准卡，首充受注册时间和充值状态控制。 | 基本相同，未发现影响购买流程的独立样式分叉。 |
+| 5 | Moment | 主导航 Moment 和 Profile 个人 Moment 都活动可达。 | 相同。 |
+| 6 | Feed | 没有独立 Feed 页面。 | 相同。 |
+| 7 | VIP 折扣价 | Profile、相册和呼叫/来电页不应用 VIP 折扣，显示原始价格或免费状态。 | 同样不支持，且配置实体中没有 `vipCallDiscount` 字段。 |
+| 8 | 签到 | Discover、Moment、Mine 都没有活动签到入口。 | 相同。 |
+| 9 | Mine 免打扰 | Mine 没有一小时免打扰入口或假来电抑制链。 | 相同。 |
+| 10 | 国家筛选 | Popular 页国家图标可打开标准 Dialog，选择后刷新 Popular；没有 VIP 拦截，也不作用于 New/Following。 | 相同。 |
+| 11 | 随机匹配 | Popular 页显示悬浮头像入口，点击后进入全屏匹配/呼叫过渡页面。 | 相同。 |
+| 12 | Discover | 挂载 Popular/New/Following，封面静态无轮播。Popular 呼叫按钮恒定；New/Following 按免费资格切换呼叫和消息，New 额外有非 VIP 模糊层。 | 相同。 |
+| 13 | App 评分 | 受服务端开关控制，由首次关注、首次付费通话或特定免费通话触发，并使用本地标记防重复。 | **完全不存在评分 Dialog、远程开关访问器和触发链。** |
+| 14 | 5 秒禁挂 | Outgoing 在 `PREPARING` 时禁用挂断按钮 5 秒。 | **没有该状态限制，外呼页可立即点击挂断。** |
 
 ## VIP 拦截边界
 
