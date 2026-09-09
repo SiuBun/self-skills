@@ -5,11 +5,11 @@
 
 ## 仓库快照
 
-| 变体 | 仓库 | 分支 | HEAD |
-|---|---|---|---|
-| 原包 | `siubun_fastcall` | `feature/vip_change` | `0058b61309cf` |
-| Lite | `siubun_fastcalllite` | `feature/vip_dev` | `f7f805bd8d5c` |
-| Pro | `siubun_fastcallpro` | `feature/vip_dev` | `2f793e9e0e00` |
+| 变体 | 仓库 | 分支 | HEAD | 工作树 |
+|---|---|---|---|---|
+| 原包 | `siubun_fastcall` | `feature/vip_change` | `0058b61309cf` | `docs/` 未跟踪 |
+| Lite | `siubun_fastcalllite` | `feature/vip_dev` | `f7f805bd8d5c` | clean |
+| Pro | `siubun_fastcallpro` | `feature/vip_dev` | `2f793e9e0e00` | clean |
 
 ## 系列关系与差异
 
@@ -21,19 +21,19 @@
 | # | 主题 | 三包公共行为 | 变体差异 |
 |---|---|---|---|
 | 1 | 通话前 VIP | 分支虽包含 VIP 商品逻辑，但普通外呼入口和中央 `CallManager` 没有统一 VIP 校验；非 VIP 仍能进入呼叫流程，VIP 主要影响商业弹窗而非使用资格。 | 三包一致。 |
-| 2 | Discover 商品 | 非 VIP 显示套餐/订阅促销入口，商品链同时使用 badge 6 与订阅数据；入口订阅会话级 30 分钟倒计时，归零后重新开始，不会自动隐藏或使优惠失效。点击打开 `NewComboDia`。 | 三包一致。 |
+| 2 | Discover 商品 | 右下 `clDiscount` 实际以 badge 6 首充金币商品作为显示和点击商品；满足首充推荐且未充值时显示，点击 `filterBadge6()` 后打开 `NewComboDia`。订阅商品虽被一并取数，但未进入当前显隐或点击链。入口显示会话级 30 分钟循环倒计时，归零后重新开始。 | 三包一致。 |
 | 3 | 通话完成 | 非 VIP 直接弹 Weekly VIP；VIP 且有金币时弹通话评价；VIP 无金币但已充值时进入普通金币商店；VIP 无金币且未充值时弹 badge 6 套餐。App 评分资格另行计算。 | 三包一致。 |
-| 4 | 商店 | 使用金币和订阅混排的统一新商店。非 VIP 显示非订阅商品及第一个订阅商品；VIP 过滤订阅商品。badge 3/5 使用推荐大卡，订阅使用 VIP Bonus 卡。 | 三包一致，差异主要是包配置和资源。 |
+| 4 | 商店 | `NewStoreAc/NewStoreDia` 的混排商店、独立 `WeeklyVipDia` 和独立 `NewComboDia` 同时存在，不能概括为只有统一商店。混排商店中非 VIP 保留非订阅商品和第一个订阅，VIP 过滤订阅；badge 3/5 使用推荐大卡，其他订阅使用 VIP Bonus 卡。 | 三包一致，差异主要是包配置和资源。 |
 | 5 | Moment | Moment 类和资源仍可能保留，但主导航入口与 Profile Moment 子页都处于隐藏/未挂载状态，用户当前无法进入。 | 三包一致。 |
 | 6 | Feed | 没有独立可达 Feed 页面。 | 三包一致。 |
 | 7 | VIP 折扣价 | Profile、相册和呼叫/来电过渡页均未应用 VIP 通话折扣，仍显示原始价格或免费状态。 | 三包一致。 |
-| 8 | 签到 | Discover 提供可见签到入口，点击打开签到弹窗并读取签到进度；Mine/Moment 是否有入口以当前布局为准，本次确认的公共入口为 Discover。 | 三包一致。 |
+| 8 | 签到 | Discover 右上和 Mine 的 Weekly Reward 卡片都是可见、可点击入口，均打开 `CheckInDia`。Moment 当前未挂载，因此没有可达的 Moment 签到入口。签到领取仍由弹窗内部状态控制。 | 三包一致。 |
 | 9 | Mine 免打扰 | 本地一小时免打扰逻辑仍存在，可通过时间戳抑制假来电；但 Mine 对应容器固定隐藏，用户无法实际开关，不影响真实来电。 | 三包一致。 |
 | 10 | 国家筛选 | Popular 页可打开顶部国家筛选 Dialog，选择后更新地区并刷新推荐列表；不对点击执行 VIP 拦截，New/Following 不使用该筛选。 | 三包一致。 |
-| 11 | 随机匹配 | 点击入口进入独立全屏模糊匹配界面，页面展示匹配中、命中、失败和余额不足状态，命中后走专用过渡页再进入通话。 | 三包一致。 |
+| 11 | 随机匹配 | 唯一可达入口是 Popular 底部内嵌 `llt_match`。点击后检查余额/免费次数和权限，再由 `RandomMatchVM.instantMatch()` 直接调用 `outgoingApi(MATCH_RECOMMEND)`；底栏中央 `clt_match` 固定隐藏。`RandomMatchAc` 有源码和 5 秒禁挂代码，但当前没有启动调用方，不能算实际过渡页。 | 三包一致。 |
 | 12 | Discover | 挂载 Popular、New、Following 三页。Popular 使用头像和相册资源进行活动轮播，呼叫按钮恒定；New/Following 根据免费资格在呼叫与消息之间切换。 | 三包一致。 |
 | 13 | App 评分 | 受服务端开关控制；首次关注、首次付费通话和最后阶段免费虚拟通话可触发，并使用本地标记防止重复展示，通常延迟约 3 秒。 | 三包一致。 |
-| 14 | 5 秒禁挂 | 普通 Outgoing 在 `PREPARING` 阶段禁用挂断 5 秒；随机匹配等相关呼叫过渡页也执行等价限制。 | 三包一致。 |
+| 14 | 5 秒禁挂 | 当前可达链中，普通 `OutgoingAc` 在 `PREPARING` 时禁用挂断 5 秒；`FakeIncomingAc` 转真实外呼后也禁用 5 秒。`RandomMatchAc` 虽有同类代码，但当前无调用方，不能计入实际可达行为；Popular 内联匹配也不会进入该页面。 | 三包一致。 |
 
 ## 分支边界
 
@@ -47,5 +47,5 @@
 - `viewmodel/NewStoreVM*`、`ui/adapter/NewStoreAdapter*`
 - `ui/dialog/NewComboDia*`、`WeeklyVipDia*`
 - `mine/MineFrag*`
-- `match/RandomMatch*`
-- `rtc/view/Outgoing*`
+- `match/RandomMatch*`、`res/layout/frag_popular.xml`、`view_bottom_tab.xml`
+- `rtc/view/Outgoing*`、`FakeIncoming*`

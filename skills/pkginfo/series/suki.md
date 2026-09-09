@@ -5,12 +5,12 @@
 
 ## 仓库快照
 
-| 变体 | 仓库 | 分支 | HEAD |
-|---|---|---|---|
-| Suki VIP 工作分支 | `siubun_suki-opt` | `change/new-main-vip` | `4a9617dc8879` |
-| Lite | `siubun_sukilite-opt` | `feature/change` | `5820425e88d4` |
-| Plus/公共上游 | `siubun_sukiplus-opt` | `feature/merge` | `9ceb75a226ad` |
-| Pro | `siubun_sukipro-opt` | `feature/change` | `5f09368fd0c8` |
+| 变体 | 仓库 | 分支 | HEAD | 工作树 |
+|---|---|---|---|---|
+| Suki VIP 工作分支 | `siubun_suki-opt` | `change/new-main-vip` | `4a9617dc8879` | `.idea/gradle.xml`、`.idea/misc.xml` 有修改 |
+| Lite | `siubun_sukilite-opt` | `feature/change` | `5820425e88d4` | `.idea` 有修改，`app/google/`、Room schema 未跟踪 |
+| Plus/公共上游 | `siubun_sukiplus-opt` | `feature/merge` | `9ceb75a226ad` | `.idea` 有修改，`app/google/`、Room schema 未跟踪 |
+| Pro | `siubun_sukipro-opt` | `feature/change` | `5f09368fd0c8` | `.idea` 有修改，`app/google/`、Room schema 未跟踪 |
 
 ## 系列关系
 
@@ -23,6 +23,9 @@
 - 期望长期拓扑应保持：
   `sukiplus/main → change/new-main-change → change/new-main-vip`。
 - 本页业务结论针对当前检出的 `change/new-main-vip`，不是对 Suki `main` 的重新审计。
+- 下方四个历史分支的拓扑资料继续保留，但本轮没有切换复核 `feature/vip`、
+  `change/new-main-change` 或 `siubun_suki-opt` 的历史 `feature/merge`；不要与当前
+  `siubun_sukiplus-opt@feature/merge` 混同。
 
 ## 四个分支的定位
 
@@ -125,20 +128,20 @@
 
 | # | 主题 | Suki VIP 工作分支 | Lite / Plus / Pro |
 |---|---|---|---|
-| 1 | 通话前 VIP | Profile、相册、消息、通话记录、真实/假来电、匹配历史和继续匹配等付费路径会拦截非 VIP；但 Popular/New/Following 卡片呼叫没有相同检查，中央 `CallManager` 也不兜底，仍可绕过。 | 普通呼叫入口不强制 VIP；主要只有随机匹配完成页的“继续匹配”检查 VIP。 |
+| 1 | 通话前 VIP | Profile、相册、消息、通话记录、真实/假来电、匹配历史、随机匹配完成页直呼和继续匹配等路径会拦截非 VIP；但 Popular/New/Following 卡片呼叫没有相同检查，中央 `CallManager` 也不兜底，仍可绕过。 | 普通呼叫入口不强制 VIP；消息页文本、图片、语音等发送仍有 VIP 门槛。随机匹配完成页“继续匹配”也检查 VIP，但完成页的直接呼叫只检查金币。 |
 | 2 | Discover 商品 | VIP 用户隐藏 VIP 入口，只在未充值且有 badge 5 商品时显示金币入口；非 VIP 隐藏金币入口，显示 `type == 1 && badge == "3"` 的 VIP 商品，按注册剩余时间倒计时，到 0 隐藏。 | 显示 badge 5 首充金币商品，仅未充值时可见；没有活动促销倒计时。 |
 | 3 | 通话完成 | 非 VIP 弹 VIP 引导；VIP 有金币时弹通话评价；VIP 无金币按是否充值进入普通金币商店或 badge 5 首充弹窗，并独立判断 App 评分。 | 未购买金币且有 badge 5 时弹首充，否则通话评价；随机匹配通话还会进入完成页。 |
-| 4 | 商店 | VIP 与金币商店分开；支持 badge 3 新用户注册时限和 badge 5 推荐样式，VIP 商店增加专属权益说明。 | 使用标准金币/VIP 商店，badge 3/5 采用推荐样式；SukiPro 倒计时区域使用粉紫渐变。 |
+| 4 | 商店 | VIP 与金币商店分开。badge 5 是活动的 5 分钟循环倒计时；普通首充按注册剩余时间，到期移除。金币列表中的 badge 3 专用分支已注释；VIP Adapter 只处理 badge 1～4，金币 Adapter 最多处理 1～5，未发现 badge 6 实现。 | 使用同一套标准金币/VIP 商店与 badge 规则；Pro 的余额不足载体和部分配色不同。 |
 | 5 | Moment | 主导航 Moment 与 Profile Moment 均活动可达。 | 三个衍生包也都可达。 |
 | 6 | Feed | 没有独立 Feed 页面。 | 相同。 |
 | 7 | VIP 折扣价 | Profile、相册、Outgoing、Incoming、FakeIncoming 都没有展示 VIP 通话折扣价。 | 相同。 |
 | 8 | 签到 | Discover、Moment、Mine 均没有活动签到入口。 | 相同。 |
-| 9 | Mine 免打扰 | Mine 没有一小时免打扰开关，也不通过本地时间抑制假来电。 | 相同。 |
-| 10 | 国家筛选 | Popular 页水平国家条可用，点击更新地区并刷新 Popular；没有 VIP 拦截，New/Following 不受筛选。 | 行为相同。 |
-| 11 | 随机匹配 | 随机匹配是独立主导航 Match Tab；免费次数耗尽且非 VIP 时弹 VIP，VIP 再进入金币/余额判断。 | 同样是独立 Match Tab，但主要按免费次数和金币判断；部分“继续匹配”动作才检查 VIP。 |
+| 9 | Mine 免打扰 | 只有 `DISTURB_SWITCH_OPEN_TIME` 常量残留；Mine 没有可见入口或写入逻辑，会话层也没有读取它来抑制假来电，不能算活动功能。 | 相同。 |
+| 10 | 国家筛选 | 活动入口是 Popular 页顶部水平国家 chips，点击直接更新地区并刷新 Popular；右侧 `iv_country` 固定隐藏，其弹窗点击代码也被注释。没有 VIP 拦截，New/Following 不受筛选。 | 行为相同。 |
+| 11 | 随机匹配 | 主导航实际挂载独立 `MatchFragment`。点击页面底部匹配按钮后检查权限，再打开 `RandomMatchActivity`；该 Activity 调用 `startMatch()`，命中后直接通过 `outgoingApi(MATCH_RECOMMEND)` 发起通话。Popular 内嵌匹配代码已注释。免费次数耗尽且非 VIP 时先弹 VIP。 | 同样使用 `MatchFragment` 与 `RandomMatchActivity`；入口主要检查免费次数和金币，不要求 VIP。Pro 在余额不足时使用 Dialog，Lite/Plus 使用 Activity。 |
 | 12 | Discover | 挂载 Popular/New/Following，列表为静态单封面，无活动轮播。Popular 呼叫恒定；New/Following 按免费资格切换。VIP 工作分支的三个列表呼叫仍是门槛漏洞。 | 三包页面结构和按钮规则相同。 |
 | 13 | App 评分 | 受服务端开关和本地一次性标记控制，首次关注、首次付费通话或特定免费虚拟通话可触发，约 3 秒延迟。 | 三包规则相同。 |
-| 14 | 5 秒禁挂 | Outgoing 进入 `PREPARING` 后禁用挂断 5 秒，匹配相关过渡页也执行限制。 | 三包相同。 |
+| 14 | 5 秒禁挂 | `OutgoingActivity` 在 `PREPARING` 时禁用挂断 5 秒；随机匹配命中后共用该普通 Outgoing 页面，不存在独立“匹配外呼页”的另一套限制。`FakeIncomingActivity` 转真实外呼并收到 `OnOutgoing` 后也禁用 5 秒。 | 三包相同。FakeIncoming 的锁定依赖无 replay 的事件流，配置重建时存在状态丢失风险。 |
 
 ## VIP 分支特有内容
 
