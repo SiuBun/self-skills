@@ -46,11 +46,25 @@ description: 理解、分析或修改 siubun_fastcall 工程时使用。记录�
 3. `AppContainer.preInitialize()` 初始化本地环境和广告标识。
 4. 初始化 Adjust、归因轮询和环境探测。
 5. `AppContainer.initialize()`：
-   - Cloak 请求失败不阻断。
+   - Cloak 请求失败不阻断，并按审核模式兜底：`model=1`、`usermode=review`。
    - `PkgAccount` 成功才进入 `EnvState.Ready`。
    - `PkgAccount` 失败进入 `EnvState.Error`。
-6. 环境 Ready 后执行 `launchMore()` 和用户会话初始化。
+6. 环境 Ready 后启动 Adjust 归因观察、执行 `launchMore()` 和用户会话初始化。
 7. `FirstAc` 同时观察环境状态和会话状态，决定启动进度和进入登录页/主页。
+
+`AppConfig` 不再由 `UserSessionManager` 直接裸拉取，而是通过认证前环境准备链路保证：
+
+```text
+Adjust attribution 最新值
+  -> fetch AppConfig
+  -> update LocalEnv.appConfig
+  -> attributionReport
+  -> refresh token / 登录
+```
+
+如果 Adjust attribution 为空，登录/刷新 token 前会主动获取一次；仍为空或超时则只保证
+base AppConfig 已成功获取，不阻塞认证。后续 attribution 再回来时，会重新触发
+`AppConfig -> attributionReport`。
 
 关键文件：
 
@@ -69,7 +83,7 @@ description: 理解、分析或修改 siubun_fastcall 工程时使用。记录�
 - `LocalEnv` 和 `EnvState`
 - 未登录可用的 Retrofit/OkHttp、API 和 Repository
 - `UserSessionManager`
-- Adjust 归因事件
+- `AppAttributionCoordinator`
 
 公共网络客户端按接口需求组合 Header：
 
@@ -78,6 +92,23 @@ description: 理解、分析或修改 siubun_fastcall 工程时使用。记录�
 - `ModelHeaderInterceptor`：机型
 - `ChannelHeaderInterceptor`：归因渠道
 - `CkHeaderInterceptor`：审核标识
+
+`LocalEnv` 是应用级环境状态源：
+
+- `adjustAttributionFlow` 保存当前最新 Adjust attribution。
+- `appConfigFlow` 保存当前最新 AppConfig。
+- `obtainNetwork()` 从 Adjust attribution 读取 `channel`。
+- `getCk()` 从 `AppConfig.appConfigReview` 生成 `ck`。
+- `getModel()` 从 Cloak 结果生成 `model`，Cloak 失败兜底为审核模式。
+
+`AppAttributionCoordinator` 负责归因、AppConfig 和认证前屏障：
+
+- `startObservation()` 观察 `LocalEnv.adjustAttributionFlow`，用 `collectLatest` 只处理最新归因。
+- attribution 变化后顺序执行 `fetch AppConfig -> update LocalEnv -> attributionReport`。
+- `prepareForAuthentication()` 用于 refresh token、快捷登录和 Google 登录前，确保 AppConfig 已准备好。
+- `Mutex` 串行化 attribution 同步，避免 AppConfig 与 attribution report 并发乱序。
+- `synchronizedAttribution` 记录已经完成 AppConfig 同步和归因上报的 attribution，避免认证前重复拉配置和重复上报。
+- Adjust attribution 或 Adjust adid 允许为空/超时；这种情况不阻塞登录，只跳过对应归因上报。
 
 ### UserSessionContainer
 
@@ -111,11 +142,20 @@ description: 理解、分析或修改 siubun_fastcall 工程时使用。记录�
 
 初始化顺序：
 
-1. 拉取 AppConfig。
+1. 调用 `AppContainer.prepareForAuthentication()`，确保 AppConfig 已准备好。
 2. 从 `SessionPersistence` 恢复缓存登录响应。
-3. 有缓存则使用 refresh token 刷新。
+3. 有缓存则再次调用 `prepareForAuthentication()`，再使用 refresh token 刷新。
 4. 刷新成功调用 `login()` 创建新会话容器。
 5. 无缓存或确认刷新失败则 LoggedOut。
+
+所有未登录认证请求也需要先进 `prepareForAuthentication()`：
+
+- refresh token
+- 快捷登录
+- Google 登录
+
+这保证 `appSessionClient` 上的 `CkHeaderInterceptor` 不会在 AppConfig 缺失时用默认
+`ck=0` 发起认证相关请求。
 
 登录、登出、删除账号使用同一个 `Mutex` 串行执行。
 
@@ -493,6 +533,22 @@ MainAc 发起随机匹配
 应用打开/切后台时长、充值分层等业务事件由 `UserSessionContainer` 集中触发。
 
 `TbaRepository` 维护独立的事件队列和周期 flush。
+
+Adjust attribution 与 AppConfig 的关系：
+
+- Adjust SDK 初始化后会主动调用一次 `Adjust.getAttribution()`，回调也会更新
+  `LocalEnv.adjustAttributionFlow`。
+- `StateFlow` 表示最新归因状态，不要求逐个处理中间归因；新归因到来会取消旧归因的
+  AppConfig 同步。
+- AppConfig 请求带 `ChannelHeaderInterceptor`，从 `LocalEnv.obtainNetwork()` 读取
+  attribution network 作为 `channel`。
+- attribution report 使用 `appSessionClient`，会带 `CkHeaderInterceptor`；因此必须在
+  AppConfig 更新后再上报，确保 `ck` 来自最新 `appConfigReview`。
+- 首次打开时 attribution 可能先为空：先拉 base AppConfig 放行登录；后续 attribution
+  返回后再补一次 AppConfig 和 attribution report。
+- `PkgAccount` 不依赖 AppConfig；当前主要被登录页登录方式和 FacebookProvider 初始化使用。
+- TBA 客户端只带 `EnvHeaderInterceptor` 和 `ModelHeaderInterceptor`，不带 `CkHeaderInterceptor`，
+  因此不依赖 `appConfigReview`。
 
 添加埋点前先搜索已有事件名和参数命名，避免同一业务重复定义。
 
