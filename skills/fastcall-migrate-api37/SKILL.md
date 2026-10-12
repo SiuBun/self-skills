@@ -43,6 +43,39 @@ final:  503ddc98766db56a4140b2552427aa7e7e2df22a
 base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 ```
 
+## 已验证迁移案例
+
+会话 ID 只用于回查实施过程、设备日志和项目差异，不代替本 skill 的迁移规则。执行新项目
+时应先按本 skill 走读目标代码，只有遇到相同问题或需要核对历史决策时才查询对应会话。
+
+### Fastcall 源项目
+
+```text
+repository: SiuBun/siubun_fastcall
+session:    f168bf2e-cc12-401a-a20f-e165dee6adda
+branch:     feature/migrate_api
+```
+
+该案例是本 skill 的语义来源，覆盖配置重建、动态窗口、支付、RTC、通知权限和 Target
+API 37 的首次完整实施。
+
+### SukiPlus 衍生项目
+
+```text
+repository: SiuBun/siubun_sukiplus-opt
+session:    34a54c32-830a-4cea-9dfa-510d2b3fc313
+branch:     migrate/merge_android17
+final:      cf047ff5
+```
+
+该案例验证了本 skill 可以迁移到包名、类名和部分业务入口不同的同源项目，并补充了：
+
+- 治理结束后再次审计并移除剩余固定方向声明；
+- Release、lint、双 flavor 单测和窗口矩阵的最终验收；
+- API Level 与 4 KB/16 KB page size 分离判断；
+- 原生 SDK 静态检查与真实动态加载结果可能不一致；
+- RongCloud Stable 5.21.3 在 API 37/ARM64/16 KB 下的运行基线。
+
 有效迁移提交按顺序为：
 
 | 阶段 | 提交 | 主题 |
@@ -71,6 +104,8 @@ base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 4. 找出目标项目的编译命令；只使用已有构建、测试和 lint 工具。
 5. 记录源类到目标类的候选关系，但不要要求用户手工提供完整映射。
 6. 若目标项目已有部分迁移，先判断行为是否等价，再决定复用、补齐或跳过。
+7. 源项目存在某个协调 Fragment、Manager 或 helper，不代表目标项目必须创建同名组件；
+   先确认目标项目是否已有行为等价的权限、导航或状态协调链。
 
 ## 等价文件识别方法
 
@@ -104,6 +139,8 @@ base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 - 状态可重放，导航和 Toast 等事件只消费一次。
 - Dialog 不保存页面 lambda；参数进 arguments，结果走 Fragment Result。
 - RTC、支付等跨页面流程保存业务参数，不保存 callback 或旧 Activity。
+- 配置重建、Activity 被系统销毁后的入口恢复和进程死亡恢复是不同承诺；按目标项目产品
+  语义分别验收，不能默认要求三者恢复到完全相同的页面状态。
 - 每阶段完成后先编译，再进入下一阶段。
 
 ## 执行阶段
@@ -122,6 +159,8 @@ base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 - 访问 View 的 Flow 收集绑定 `viewLifecycleOwner`；
 - Adapter、`TabLayoutMediator`、PageChangeCallback、刷新监听、Insets listener、动画和
   View 回调在 `onDestroyView()` 对称释放；
+- 所有 binding/View 操作都必须在 `super.onDestroyView()` 前完成；Fragment 的
+  `onDestroy()` 不得访问 binding；
 - 基类不要自动调用有登录态或其他前置条件的 `setupViews()`；
 - 子类继续在门控完成后显式初始化。
 
@@ -399,7 +438,8 @@ base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 
 完成后搜索并逐项确认：
 
-- 固定方向声明是否只剩明确未迁移页面；
+- 固定方向声明是否只剩明确未迁移页面；已治理页面完成后再次全项目搜索，不能只依据
+  初始页面清单；
 - Fragment 是否仍在 View 销毁后访问 binding；
 - Dialog 是否还有字段 lambda、静态 callback Map；
 - 页面是否在 `onCreate/setupViews` 重复提交业务；
@@ -420,7 +460,16 @@ base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 ./gradlew :app:compileLocalDebugKotlin :app:compileGoogleDebugKotlin
 ```
 
-按改动范围追加现有单元测试、Release 编译或 lint，不引入新的测试框架。
+最终收口阶段应执行目标项目已有的：
+
+- 两个主要 Debug flavor 编译或单元测试；
+- 正式 Release APK/AAB 构建；
+- lint；
+- `git diff --check`。
+
+lint 不通过时修复真实问题，不使用 baseline 隐藏本次引入的错误。SDK Key、URL、
+applicationId 等配置资源应标记 `translatable="false"`；新增系统通知和权限文案应补齐
+项目已有语言。
 
 设备侧至少覆盖：
 
@@ -432,10 +481,61 @@ base:   63fa72319ae8b606d2fbf91b16417fce958e1be4
 - RTC Surface、计时、静音、摄像头和挂断边界；
 - API 37 与 16 KB 原生 SDK 实际路径。
 
+### API 37 与 page size 矩阵
+
+API Level 和 page size 是两个独立维度。记录每台设备的 API、ABI、page size 和 SDK
+版本，不能把“API 37 已通过”直接等同于“16 KB 已通过”：
+
+```sh
+adb shell getprop ro.build.version.sdk
+adb shell getprop ro.product.cpu.abi
+adb shell getconf PAGE_SIZE
+```
+
+条件允许时至少覆盖：
+
+- API 36/ARM64/4 KB；
+- API 37/ARM64/4 KB；
+- API 37/ARM64/16 KB。
+
+APK ZIP 对齐和 ELF `PT_LOAD p_align` 静态检查都不能替代真实运行。必须让 SDK 执行到
+原生库加载、数据库打开、连接或等价核心路径，并检查：
+
+```text
+program alignment
+UnsatisfiedLinkError
+Attempt to load writable file
+dlopen failed
+FATAL EXCEPTION
+```
+
+不能只确认进程未崩溃；还应确认 SDK 的成功回调、延时稳定运行和关键业务状态。
+
+选择第三方 SDK 版本时，厂商定义的 Stable/Dev 优先于 Maven metadata 的
+`latest/release`。先查官方 release notes 和兼容声明，再确认 artifact，最后以目标设备
+运行结果为准。RongCloud 已验证基线：
+
+```text
+cn.rongcloud.sdk:im_lib:5.21.3
+API 37 / ARM64 / 16 KB
+冷启动、数据库打开、连接、离线消息同步通过
+```
+
+旧项目若版本更低，应先评估 API 兼容和业务回归，再升级并执行同样的真实路径验证。
+
+### 窗口状态验证
+
+不要只依据 ADB 命令返回成功判断设备已进入目标状态：
+
+- 旋转后读取 Activity configuration 或 display rotation，确认 0/90/180/270 实际生效；
+- Freeform、分屏后通过 `dumpsys activity` 确认真实 WindowingMode；
+- 检查进程、当前 Activity、选中 Tab、任务栈和 fatal 日志；
+- “不保留活动”确认 Activity 实例确实替换，并按目标项目的冷入口语义判断恢复结果；
+- `cmd device_state` 只模拟框架状态，不等同于物理折叠真机铰链，折叠/展开仍需人工验证。
+
 ## 提交方式
 
 - 每个阶段或紧密相关阶段单独提交；
 - 提交前查看 diff，排除源项目包名、无关业务、格式化和资源污染；
 - 不把源项目生成物、APK、临时报告或本地配置提交到目标仓库；
 - 最终说明已迁移、目标项目不存在、刻意保留差异和仍需设备验证的项目。
-

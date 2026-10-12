@@ -47,6 +47,8 @@ description: 按 SiuBun 的 Android/Kotlin 个人代码与设计风格实现或�
 - 长时间运行的业务放入 ViewModel、会话 Manager 或应用级对象；View 销毁只释放 View 资源，不能顺带结束更长生命周期的业务。
 - 需要跨重建继续的 UI 结果必须是可观察状态；无回放事件只适合允许在重建空窗丢弃的视觉反馈。
 - 区分配置重建与进程死亡。内存状态只承诺配置重建连续性；需要支持进程恢复时，必须显式选择 `SavedStateHandle`、持久化存储或可重放的领域状态。
+- 配置重建、Activity 被系统销毁后的入口恢复、进程死亡恢复和用户冷启动是不同场景；
+  当前 Tab、草稿等状态是否保留应按产品语义分别定义，不能默认要求所有场景完全一致。
 - 配置重建验证不仅检查崩溃，还要检查重复请求、重复导航、重复权限、重复支付、重复信令、倒计时重置和旧 View 引用。
 - 页面初始化必须拆分“可重复绑定”和“只执行一次的业务”。`setupViews()` 可以重复设置 View、监听器和状态收集，但不能默认包含网络提交、匹配、支付或通话启动。
 - 配置变化期间旧页面可能先 `onStop()`、新页面稍后 `onStart()`；应用前后台状态使用 `ProcessLifecycleOwner` 等进程级来源，不以单个 Activity 生命周期直接推断。
@@ -109,6 +111,8 @@ val uiEvent = _uiEvent.asSharedFlow()
 - Activity 使用统一基类承载 ViewBinding、Edge-to-Edge 和系统栏策略。
 - Fragment 的 binding 生命周期必须与 View 生命周期一致。若基类使用 `lateinit binding`，不得在 `onDestroyView()` 后持有 View、Job、回调或 Adapter 引用；新增基类时优先采用可空 backing field 并清空。
 - Fragment 的 Flow 收集、Adapter、动画、播放器监听、Insets listener 和任何读取 binding 的任务都绑定 `viewLifecycleOwner`，并在 `onDestroyView()` 对称解除。
+- Fragment 释放 binding、动画或其他 View 资源时，应在 `super.onDestroyView()` 前完成；
+  `onDestroy()` 不得再读取 binding 或访问已销毁的 View。
 - 基类不要自动调用依赖登录态、参数校验或其他门控的 `setupViews()`；由子类在前置条件满足后显式初始化，避免提前访问未准备好的会话依赖。
 - ViewModel、Manager 和 Service 不持有 Activity、Fragment、ViewBinding、View 或页面 lambda。需要 UI 时发布状态/事件，由当前可用页面处理。
 - 点击复用项目已有防抖扩展；不要重复实现计时器。
@@ -189,6 +193,14 @@ val uiEvent = _uiEvent.asSharedFlow()
 - 推荐先提升 `compileSdk` 并暂时保留旧 `targetSdk`，解决编译、AndroidX 和第三方依赖兼容；再逐项启用兼容变更，最后切换 target。
 - 对 IM、RTC、支付、推送、媒体和 WebView 等 SDK 驱动模块，除代码审计外还要取得厂商兼容声明，并在真实设备验证后台、权限、网络和原生库行为。
 - 原生依赖不能只验证 APK 可安装或 ZIP 对齐；还要覆盖目标 page size、ABI、动态加载规则和 SDK 实际执行路径。
+- API Level、ABI 和 page size 是独立验证维度；记录实际环境，不把“新系统已通过”误写成
+  “16 KB 已通过”。
+- ELF LOAD 对齐等静态结果不能替代动态链接和 SDK 核心路径。至少验证原生库加载、数据库
+  或引擎初始化、服务连接/核心回调和延时稳定运行。
+- Maven 的 `latest/release` 不等于厂商 Stable。第三方 SDK 版本选择以官方稳定版说明和
+  兼容声明为先，再用真实设备结果确认。
+- 强制旋转、Freeform、分屏或 DeviceState 后，应读取系统 configuration、WindowingMode
+  或任务状态确认命令实际生效；框架 DeviceState 模拟不能替代物理折叠设备验证。
 - 大屏合规只修复方向限制失效后暴露的状态丢失、遮挡和不可操作问题；双栏、侧边导航和视觉扩展属于产品体验优化，应单独立项。
 
 ## 维护原则
