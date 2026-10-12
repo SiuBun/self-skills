@@ -27,6 +27,137 @@
   `change/new-main-change` 或 `siubun_suki-opt` 的历史 `feature/merge`；不要与当前
   `siubun_sukiplus-opt@feature/merge` 混同。
 
+## SukiPlus Android 17 迁移后通话基线
+
+> 补充时间：2026-10-12
+> 仓库：`SiuBun/siubun_sukiplus-opt`
+> 分支：`migrate/merge_android17`
+> 会话 ID：`34a54c32-830a-4cea-9dfa-510d2b3fc313`
+> 最终提交：`cf047ff5`
+
+本节只描述 SukiPlus Android 17 迁移分支的最终实现，不覆盖下方
+`change/new-main-vip` 与其他历史分支的业务审计结论。后续分析不同分支时必须先确认
+当前代码是否包含上述迁移提交。
+
+### 核心职责
+
+- `CallManager` 是会话级唯一持续通话状态源，持有 RTC、信令、通话信息、加入阶段、
+  计时、pending 外呼和后台媒体策略。
+- `CallManager.state` 用于页面恢复渲染，`CallManager.events` 用于一次性业务导航。
+- `UserSessionContainer` 是主要通话导航唯一消费者：
+  - `OnOutgoingStarted` 只为普通外呼打开 `OutgoingActivity`；
+  - `OnIncoming` 打开 `IncomingActivity`；
+  - `OnFakeIncoming` 打开 `FakeIncomingActivity`；
+  - `OnPickup` 唯一启动 `VideoCallActivity`。
+- 来电、去电、假来电和随机匹配页面接通后只关闭或等待统一导航，不得再次启动最终通话页。
+- Activity 配置重建只重新绑定 View、播放器和本地/远端 Surface，不重新提交外呼、
+  接听、RTC join 或最终页导航。
+
+### 统一权限协调
+
+普通外呼、真实来电接听、假来电转真实外呼和随机匹配命中后的外呼都通过
+`CallPermissionRequester`：
+
+```text
+保存 pending 外呼参数或保留当前 INCOMING 状态
+  -> 请求相机/麦克风权限
+  -> CallNotificationPermissionFragment
+  -> 通知说明 Dialog、POST_NOTIFICATIONS 或应用通知设置
+  -> 读取最终通知权限
+  -> CallManager.completePendingCallPermission()
+  -> outgoingApi() 或 pickupApi()
+```
+
+- `CallNotificationPermissionFragment` 使用固定 TAG 和 Fragment Result，不保存 Activity
+  callback。
+- 是否曾请求通知权限只决定交互路径，真实授权结果始终读取系统 API。
+- 权限页或设置页期间设置协调门控，不能把系统页面切换误判为普通退后台。
+- `CallManager` 保存目标 UID、来源、`CallOrigin` 和免费类型等业务参数，不保存旧 Activity。
+
+### 四类通话入口
+
+#### 普通外呼
+
+```text
+业务页面
+  -> CallPermissionRequester.requestOutgoing()
+  -> CallManager.prepareOutgoing()
+  -> 统一权限协调
+  -> outgoingApi()
+  -> PREPARING + 前台服务握手 + OnOutgoingStarted
+  -> UserSessionContainer 打开 OutgoingActivity
+  -> CONNECTED + OnPickup
+  -> UserSessionContainer 唯一打开 VideoCallActivity
+```
+
+#### 真实来电
+
+```text
+IM SignalingEvent Incoming
+  -> CallManager.handleIncoming()
+  -> INCOMING + RTC 预加入 + OnIncoming
+  -> UserSessionContainer 打开 IncomingActivity
+  -> 用户接听
+  -> CallPermissionRequester.requestPickup()
+  -> 统一权限协调
+  -> pickupApi()
+  -> CONNECTED + OnPickup
+  -> UserSessionContainer 唯一打开 VideoCallActivity
+```
+
+来电响铃阶段不启动前台服务；用户确认接听后才启动。
+
+#### 假来电
+
+```text
+CallFakeRequest + OnFakeIncoming
+  -> FakeIncomingActivity
+  -> 用户接听
+  -> closeFakeCall() 清除模拟状态
+  -> requestOutgoing(CallOrigin.FAKE_CALL)
+  -> 统一权限协调并发起真实外呼
+  -> OnPickup 后统一进入 VideoCallActivity
+```
+
+`closeFakeCall()` 产生的中间 `IDLE` 是流程切换，不是页面终止协议。假来电外呼不会再打开
+普通 `OutgoingActivity`，继续使用当前假来电过渡页等待统一接通导航。
+
+#### 随机匹配
+
+```text
+MatchFragment 打开 RandomMatchActivity
+  -> RandomMatchViewModel 保存匹配状态和 pendingOutgoing
+  -> 页面在可收集状态消费 pendingOutgoing
+  -> requestOutgoing(CallOrigin.MATCH_RECOMMEND)
+  -> 统一权限协调并发起外呼
+  -> OnPickup 后统一进入 VideoCallActivity
+```
+
+匹配目标先保存再消费，配置重建不能重复提交外呼。匹配外呼保持当前
+`RandomMatchActivity` 作为过渡页，不再打开普通 `OutgoingActivity`。
+
+### 前台服务与后台策略
+
+- 外呼进入 `PREPARING` 或用户点击接听后，从可见状态启动
+  `CallForegroundService`，完成真实 `startForeground()` 握手后才继续网络呼叫流程。
+- Service 声明 `camera|microphone` 类型，只观察 `CallManager.state` 更新通知，不维护
+  第二份业务状态，也不创建来电、去电或匹配页面。
+- `IDLE`、会话释放和登出时停止服务。
+- 有通知权限时，退后台保留 RTC、麦克风和远端音频，暂停本地视频；回前台按用户原始
+  视频意图恢复。
+- 无通知权限时仍允许前台通话，但真正进入后台后自动挂断。
+- 后台状态来自 `ProcessLifecycleOwner`，不能使用单个 Activity 的 stop/start 判断；
+  横竖屏重建不会触发后台挂断。
+
+### 当前验收边界
+
+- `compileSdk/targetSdk 37`、Release Bundle、lint、双 flavor 单测已通过。
+- API 37/ARM64/4 KB 真机完成四方向旋转、Freeform、多窗口和“不保留活动”验证。
+- RongCloud Stable 5.21.3 已在 API 37/ARM64/16 KB 完成冷启动、数据库打开、连接和
+  离线消息同步。
+- RTC 普通外呼、真实来电、假来电和随机匹配在通知允许/拒绝、锁屏和真实退后台下的
+  完整真机业务矩阵仍由测试团队验收，不能仅凭静态和窗口测试宣称全部实测通过。
+
 ## 四个分支的定位
 
 | 分支 | HEAD | 日期 | 定位 | 关键事实 |
