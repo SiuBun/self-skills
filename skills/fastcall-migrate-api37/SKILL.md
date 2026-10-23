@@ -71,6 +71,10 @@ final:      cf047ff5
 该案例验证了本 skill 可以迁移到包名、类名和部分业务入口不同的同源项目，并补充了：
 
 - 治理结束后再次审计并移除剩余固定方向声明；
+- BottomSheet 默认系统栏避让、显式展开和透明主题的统一治理；
+- 不支持横屏时由应用级 Coordinator 去重提示，不污染 Activity 生命周期基础设施；
+- Android 14+ 进行中通话使用 `CallStyle`、通知挂断入口和任务移除语义；
+- 后台统一关闭本地麦克风和摄像头，只播放远端音频，FGS 收敛为 `mediaPlayback`；
 - Release、lint、双 flavor 单测和窗口矩阵的最终验收；
 - API Level 与 4 KB/16 KB page size 分离判断；
 - 原生 SDK 静态检查与真实动态加载结果可能不一致；
@@ -95,6 +99,19 @@ final:      cf047ff5
 
 中间存在 `feature/change` merge，不属于本迁移的语义来源。检查提交时优先查看上表中的
 非 merge 提交，并以 `503ddc98` 的最终文件状态为准。
+
+SukiPlus 在首次迁移完成后，于 2026-10-20 至 2026-10-23 继续补充了以下 Android 17
+治理案例：
+
+| 提交 | 主题 |
+| --- | --- |
+| `df2a5e2d`, `5f6c34d9`, `9b8d90f4` | BottomSheet 透明主题、默认 Insets 与显式展开 |
+| `1d2f1e38` | 全应用横屏暂不支持提示协调器 |
+| `fa688b22` | `CallStyle` 通知、通知挂断入口、前台恢复和匹配入口保护 |
+| `69a085b2` | 后台不采集摄像头时移除 camera FGS |
+| `371b3c7d` | 后台只播放远端音频时改用 mediaPlayback FGS，并暂停本地麦克风 |
+
+这些提交用于补充本 skill 的通用规则，不替代首次迁移提交表。
 
 ## 开始前必须完成
 
@@ -217,6 +234,27 @@ final:      cf047ff5
 - 可恢复 Dialog 使用固定 TAG、arguments 和 Fragment Result；
 - 系统栏 Insets 只由明确的一层负责，避免 Activity 与子 Fragment 重复叠加；
 - 重建后任务栈中只能有一个主页实例。
+
+#### BottomSheet 与不支持方向提示
+
+- `BottomSheetDialogFragment` 由 FragmentManager 恢复，不保存旧 Activity、View 或 lambda；
+- 透明背景使用完整的 Dialog ThemeOverlay，不能把内部 Widget style 直接作为
+  `getTheme()` 返回值；
+- 若希望 Material/系统默认避让状态栏和导航栏，不调用
+  `WindowCompat.setDecorFitsSystemWindows(window, false)`，并同步移除手动 Insets
+  listener，避免重复避让；
+- compact 横屏首次展示不能停在自动 `peekHeight` 的折叠状态；需要完整展示的 Sheet
+  在各子类 `onStart()` 显式调用扩展方法，设置 `isFitToContents=true`、
+  `skipCollapsed=true` 和 `STATE_EXPANDED`；
+- 展开能力使用显式扩展方法，不在统一基类中隐式注入，避免改变不需要自动展开的 Sheet；
+- `STATE_EXPANDED` 只解决 Sheet 状态，不解决内容本身超过窗口的问题；超高内容应使用
+  单一主要滚动容器，避免用 `NestedScrollView` 包裹同轴垂直 RecyclerView；
+- 若产品允许横屏但暂不支持横屏布局，由应用级 Coordinator 观察方向变化并提示；
+  `ActivityManager` 只发布生命周期事件，不保存横屏业务状态；
+- Coordinator 记录上一次稳定方向，只在非横屏切到横屏时提示，页面跳转、后台返回和
+  横屏轻微晃动不能重复提示；
+- 后续由 Toast 替换为 DialogFragment 时，使用固定 TAG、检查
+  `FragmentManager.isStateSaved` 和已恢复实例，避免系统恢复后重复展示。
 
 ### 阶段 4：主播墙和动态尺寸
 
@@ -435,22 +473,55 @@ Target API 37 的强制行为，但属于迁移后常见的启动性能、内存
 
 #### 前台服务与通知
 
-- 外呼进入 `PREPARING`、用户点击接听后，从可见状态启动
-  `camera|microphone` 前台服务；
+- Fastcall 同源项目的默认后台通话策略统一为：
+
+  ```text
+  暂停本地麦克风采集
+  暂停本地摄像头采集
+  继续播放远端 RTC 音频
+  使用 mediaPlayback 前台服务
+  ```
+
+- 不再逐项目默认申请 camera/microphone FGS；只有用户明确要求后台继续采集麦克风或
+  摄像头时，才评估增加对应类型；
+- 普通 `CAMERA`、`RECORD_AUDIO` 运行时权限与 FGS 类型权限是两套概念；移除 camera 或
+  microphone FGS 后，前台音视频通话仍需保留对应运行时权限；
+- target API 34+ 时，Manifest permission、Service 的 `foregroundServiceType` 和
+  `ServiceCompat.startForeground()` 传入类型必须一致；不能保留无类型前台 Service；
+- 声明任意具体 FGS 权限都会触发 Google Play 前台服务用途申报，应按最小权限描述真实
+  后台行为，不能为了规避申报而错误声明其他类型；
+- 外呼进入 `PREPARING`、用户点击接听后，从可见状态启动前台服务，并等待真实
+  `startForeground()` 成功回执后再继续提交外呼或接听业务；
 - Service 观察 `CallManager.state`，不维护第二份通话状态；
 - `IDLE`、会话释放或登出时停止服务；
 - 通知连接前不创建来电、去电或匹配过渡页；
 - `CONNECTED` 后通知正文只返回最终通话页；
-- 通知没有挂断 action，挂断由通话页面处理；
+- Android 14+ 普通 `setOngoing(true)` 通知仍可能被用户清除；进行中通话使用
+  `NotificationCompat.CallStyle.forOngoingCall()`，其挂断 PendingIntent 只委托
+  `CallManager` 执行业务挂断；
+- 最近任务上滑只移除 Task，不等同于强行停止；需要保留通话时显式声明
+  `stopWithTask=false`，Service 使用 `START_NOT_STICKY`，进程真实死亡后不伪造恢复；
+- Manifest 组件和显式 `Service::class.java` 引用通常已被 R8 识别，不因新增 Service
+  机械添加 keep 规则；以 Release mapping、packaged Manifest 和 missing rules 为准；
 - Service 不反向驱动业务状态。
 
 #### 前后台媒体策略
 
-- 有通知权限：后台保留 RTC、麦克风和远端音频，暂停本地视频采集；
-- 返回前台：按用户原本视频意图恢复，不覆盖用户主动关闭视频；
+- 本地音频意图和本地视频意图分别保存，系统为了后台策略临时关闭采集时，不能覆盖用户
+  主动静音或主动关闭摄像头的状态；
+- 实际传给 RTC 引擎的本地音视频开关同时受用户意图和应用前台状态门控；
+- 退后台时关闭本地麦克风和摄像头，继续播放远端音频，Service 使用
+  `mediaPlayback`；返回前台后分别按用户原始音频、视频意图恢复；
+- 只有用户明确改为“后台连远端音频也不播放”时，才评估移除 RTC 前台服务；移除后不能
+  承诺进程或通话在后台持续存活，若产品要求确定行为应在退后台时直接挂断；
 - 无通知权限：允许前台通话，真正进入后台后自动挂断；
 - 后台策略只应用于 `OUTGOING/CONNECTING/CONNECTED`；
 - 在 `PREPARING` 时已后台，转为 `OUTGOING` 后再次检查策略；
+- 进入系统权限页或通知设置页期间设置协调门控，不能把权限流程误判为真实退后台；
+- 应用回前台时是否自动重新打开通话页属于产品决策；默认只记录仍有活动通话，不自动
+  导航，避免抢占用户当前页面；
+- 发起匹配等会创建新通话的入口，在点击时和权限结果返回后都检查 `CallManager` 是否
+  `IDLE`，避免权限弹窗期间产生第二场通话；
 - 当前不支持应用已在后台时自动拉起来电页面。
 
 #### 网络和日志
@@ -489,6 +560,10 @@ Target API 37 的强制行为，但属于迁移后常见的启动性能、内存
 - 涉及 Flavor 专属源码、Manifest、依赖、资源、BuildConfig 或渠道配置时，应立即验证受
   影响的全部变体；
 - 阶段收口、准备提交或最终验收时，至少执行目标项目已有的两个主要 Debug 变体。
+- 不要同时启动多个独立 Gradle 进程构建同一模块的不同变体，它们可能并发写入
+  `build/intermediates`；使用同一次 Gradle 调用顺序执行多个任务；
+- 修改 FGS permission/type 后，除编译外还要检查各相关 flavor 的 merged/packaged
+  Manifest；Release 检查只需按修改粒度运行必要任务，阶段收口再执行完整 Release。
 
 若命名与源项目相同，阶段收口使用：
 
