@@ -129,13 +129,26 @@ val uiEvent = _uiEvent.asSharedFlow()
 
 - 居中弹窗使用统一基类处理透明背景、宽度和默认取消策略；产品明确要求前不要改变关闭行为。
 - Dialog 的 binding 使用可空 backing field，并在 `onDestroyView()` 清空；同时取消与 View 绑定的 Job、动画和回调。
-- Bottom Sheet 统一处理透明父背景、顶部圆角、固定 TAG 和展示入口。
+- Bottom Sheet 通过主题统一处理透明容器背景，保留顶部圆角、固定 TAG 和展示入口；不再通过修改 `view.parent` 背景修补圆角。
 - 参数优先放 `arguments`。需要系统恢复或配置重建的 Dialog 不使用字段 Lambda、静态 callback Map 或构造 callback，结果通过 Fragment Result 或可恢复状态返回。
 - 跨多个 Activity/Fragment 的长流程由 Manager 保存待处理业务上下文，而不是保存函数。必要时使用无业务 UI 的协调 Fragment，在同一 FragmentManager 中接收 Dialog 结果并转交 Manager。
 - 协调 Fragment 使用固定 TAG 保证同一宿主只有一个实例，不加入 Back Stack；返回键应关闭业务 Dialog 或宿主，不额外消费一次返回。
 - Fragment 事务、Dialog 展示和 View 操作必须在主线程完成。若先写 pending 状态再展示 UI，展示失败必须回滚，宿主真正结束和所属 Manager 释放时也要清理。
 - 需要避让键盘时使用 `WindowInsetsCompat.Type.ime()`，更新根容器 margin/padding；不要根据屏幕高度猜测键盘。
 - 显示/隐藏键盘复用统一扩展，保证焦点与 IME 状态同步。
+
+### BottomSheetDialog 系统栏风格
+
+- XML/View 的 `BottomSheetDialogFragment` 优先使用共用主题覆盖层，在 `getTheme()` 返回；主题配置 Window 属性，`bottomSheetStyle` 指向的 Widget 样式配置背景、elevation 和 Material Insets 行为，不为每个弹窗复制一套主题。
+- 在 `onStart()` 对 `dialog.window` 调用 `WindowCompat.enableEdgeToEdge(window)`，让弹窗背景延伸至透明导航栏下方；Dialog 有独立 Window，不通过修改宿主 Activity 系统栏来修复弹窗。
+- 主题设置 `android:enforceNavigationBarContrast=false`，避免三键导航的对比度遮罩造成底部异色。深色背景使用 `android:windowLightNavigationBar=false`（浅色按钮），浅色背景使用 `true`；不是所有弹窗都固定使用同一种按钮明暗。
+- Widget 样式使用透明 `backgroundTint`、`android:elevation=0dp`；手动处理底部 Insets 时，关闭 `paddingBottomSystemWindowInsets`，避免 Material 自动补偿与内容 padding 叠加。左右 padding、margin 的默认值应核实项目实际 Material 版本，避免横屏重复避让。
+- Insets 监听器设置在内容 View，使用 `systemBars()` 的 Insets 给内容增加必要的左右、底部 padding，而不是 bottom margin：操作内容避开系统栏，背景仍覆盖导航栏区域。顶部避让按弹窗实际高度决定，不机械照搬 Activity 的顶部 padding。
+- 根布局透明、背景位于内层内容容器时，把底部 padding 加到能够让背景覆盖新增区域的内层容器；独立背景 View 还需确认约束覆盖该区域。不要为底部补色破坏顶部装饰透明区域。
+- 保留布局已有 padding，基于 View 生命周期内保存的初始值计算，不在每次 Insets 分发或 `onStart()` 时累加。设置监听器后调用 `ViewCompat.requestApplyInsets()`，在清空 binding 前移除监听器。
+- 有输入框时单独读取 `ime()`，根据实际窗口 resize 行为处理 `maxOf(systemBars.bottom, ime.bottom)`，避免重复补偿；不要把 `systemBars()` 误当键盘高度。
+- 保留各弹窗的展开、拖拽、最大高度等行为。优先由主题管理系统栏明暗；确认被库覆盖时，才在边到边调用后用 InsetsController 明确设置，避免无依据地堆叠配置。
+- 同时检查手势导航、三键导航、横屏、键盘和 View 重建；编译成功不能代替导航栏视觉验证。
 
 ### 权限和跨页面待处理操作
 
