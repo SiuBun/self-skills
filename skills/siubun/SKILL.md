@@ -14,6 +14,7 @@ description: 按 SiuBun 的 Android/Kotlin 个人代码与设计风格实现或�
 3. 明确数据是持续状态还是一次性事件，是应用级、登录会话级、页面级还是 View 级。
 4. 明确失败、取消、重试、并发调用、登出和页面销毁时的行为。
 5. 只有现有抽象无法自然承载职责时才新增公共层；API 保持最小，不为“可能复用”提前设计框架。
+6. 明确本次允许修改的 UI、结构和业务边界。仅改 UI 时，先核对需要保留的条件分支、参数、来源标记和路由；参考同源项目时只迁移已确认适用的部分，不照搬其业务差异。
 
 ## 架构取向
 
@@ -143,9 +144,9 @@ val uiEvent = _uiEvent.asSharedFlow()
 - 在 `onStart()` 对 `dialog.window` 调用 `WindowCompat.enableEdgeToEdge(window)`，让弹窗背景延伸至透明导航栏下方；Dialog 有独立 Window，不通过修改宿主 Activity 系统栏来修复弹窗。
 - 主题设置 `android:enforceNavigationBarContrast=false`，避免三键导航的对比度遮罩造成底部异色。深色背景使用 `android:windowLightNavigationBar=false`（浅色按钮），浅色背景使用 `true`；不是所有弹窗都固定使用同一种按钮明暗。
 - Widget 样式使用透明 `backgroundTint`、`android:elevation=0dp`；手动处理底部 Insets 时，关闭 `paddingBottomSystemWindowInsets`，避免 Material 自动补偿与内容 padding 叠加。左右 padding、margin 的默认值应核实项目实际 Material 版本，避免横屏重复避让。
-- Insets 监听器设置在内容 View，使用 `systemBars()` 的 Insets 给内容增加必要的左右、底部 padding，而不是 bottom margin：操作内容避开系统栏，背景仍覆盖导航栏区域。顶部避让按弹窗实际高度决定，不机械照搬 Activity 的顶部 padding。
+- Insets 监听器一般设置在内容根 View，优先使用 `systemBars()` 的 Insets 设置 padding；根据各弹窗的背景层和控件关系选择具体承载层及 margin/padding，不统一套用同一种处理。操作内容避开系统栏，背景仍覆盖导航栏区域；顶部避让按弹窗实际高度决定。
 - 根布局透明、背景位于内层内容容器时，把底部 padding 加到能够让背景覆盖新增区域的内层容器；独立背景 View 还需确认约束覆盖该区域。不要为底部补色破坏顶部装饰透明区域。
-- 保留布局已有 padding，基于 View 生命周期内保存的初始值计算，不在每次 Insets 分发或 `onStart()` 时累加。设置监听器后调用 `ViewCompat.requestApplyInsets()`，在清空 binding 前移除监听器。
+- Insets 更新必须幂等，保留设计内边距，但不统一引入 `initialPadding` 快照模板；根据该布局的固定间距和实际承载层计算最终值，不能在当前 padding/margin 上反复累加。子布局在增加 padding 后仍须保持约束和尺寸关系。设置监听器后调用 `ViewCompat.requestApplyInsets()`，在清空 binding 前移除监听器。
 - 有输入框时单独读取 `ime()`，根据实际窗口 resize 行为处理 `maxOf(systemBars.bottom, ime.bottom)`，避免重复补偿；不要把 `systemBars()` 误当键盘高度。
 - 保留各弹窗的展开、拖拽、最大高度等行为。优先由主题管理系统栏明暗；确认被库覆盖时，才在边到边调用后用 InsetsController 明确设置，避免无依据地堆叠配置。
 - 同时检查手势导航、三键导航、横屏、键盘和 View 重建；编译成功不能代替导航栏视觉验证。
@@ -163,6 +164,7 @@ val uiEvent = _uiEvent.asSharedFlow()
 
 - 普通异步列表使用 `ListAdapter`；分页列表使用 Paging 的 `PagingDataAdapter` 和 `PagingSource`。
 - Adapter 保持薄，只负责 inflate、bind、ViewType、点击和必要的 payload 局部刷新。
+- 常规字体、颜色、尺寸和背景优先放在 XML 或控件内部，不在 Adapter 中重复设置；渐变等确需运行时绘制的样式才放代码。
 - `areItemsTheSame` 使用稳定业务 ID，`areContentsTheSame` 比较完整可渲染数据。
 - 点击时读取 `bindingAdapterPosition`，检查 `NO_POSITION`，再从当前列表获取 item，避免异步更新后的旧引用。
 - 只有局部刷新收益明确时才实现 payload；payload bind 只更新受影响控件。
@@ -175,14 +177,17 @@ val uiEvent = _uiEvent.asSharedFlow()
 
 - 优先使用 ConstraintLayout 表达明确相对关系，完整建立约束；受相邻元素限制的宽度使用 `0dp`。
 - ConstraintLayout 中不要把多个控件都写成相对父容器左上角的“坐标式 margin”。优先选择稳定的相邻控件或共同视觉容器作为参照，使用 start/end/top/bottom 约束表达真实关系。
-- 固定尺寸控件也应按语义补齐必要的双向约束。居中或偏移元素使用父容器双向约束配合 bias；角标、徽章和重叠装饰优先约束到其所属图片或卡片，不重复计算相对根布局的位置。
+- ConstraintLayout 中实际控件必须明确写齐 top/bottom 和 start/end 四向约束，固定尺寸也不例外；Guideline、Barrier 等辅助对象按各自语义配置。居中或偏移元素使用双向约束配合 bias；角标、徽章和重叠装饰优先约束到其所属图片或卡片，不重复计算相对根布局的位置。不擅自新增设计及用户未要求的避让关系。
 - 连续的标题、正文、按钮等内容建立完整纵向链：上一项 bottom 连接下一项 top，首项连接内容区域顶部，末项连接底部。间距分别写在对应关系上，不依靠父布局 wrap_content 和零散 top margin 隐式撑高。
 - 覆盖在素材上的文字应四边约束到素材容器；0dp 宽高只在四个方向均有明确约束时使用。固定高度、最小高度和内容自适应要按设计语义区分，不能互相替代。
 - 复杂重叠区域为关键 View 设置可读 ID，并让后续约束引用这些 ID。只有不存在稳定相对关系时才使用相对父容器的绝对偏移；使用时应结合双向约束和 bias，避免只写 start/top margin。
 - 文本设置合理的 `maxLines`、`ellipsize` 和 constrained width，避免长文案破坏布局。
+- 内容型文字标签或带 shape 背景的 TextView，宽度优先 `wrap_content`，用 `paddingHorizontal` 或 start/end padding 留白，不按设计稿中的单次文案测量值写死宽度；父容器也须允许内容变宽。确属填满可用区域的文本仍使用有边界约束的 `0dp`。
+- 可选控件的显隐优先通过相邻约束、chain、bias 和 `goneMargin` 表达；不能用运行时重写 LayoutParams、负 margin 或 translation 补救静态布局。每次绑定明确更新各可见性分支，避免复用或状态切换后残留旧状态。
 - 用户可见文本、颜色、字体、drawable 和复用尺寸使用资源；不在 Kotlin/XML 中散落硬编码。
 - `tools:` 只用于预览，不改变运行时行为。
 - 运行时 shape 复用统一扩展；XML 初始背景与运行时背景保持视觉一致。
+- 新增图片、drawable 或公共 UI helper 前，先查现有 shape 扩展、描边文字、圆角图片及 selector 的能力；能通过现有 setter、颜色或组合实现时直接复用，不为单处视觉细节轻易扩展公共 API。
 - Edge-to-Edge 页面先定义系统栏、IME、底部导航各自负责的 inset，避免重复叠加 padding。
 - 设计还原先确认最终可用内容区域，再处理固定尺寸和比例；不要把系统栏或 Bottom Bar 高度重复算入设计内容。
 
@@ -204,6 +209,13 @@ val uiEvent = _uiEvent.asSharedFlow()
 5. 新实现是否复用了现有资源、扩展、Factory、缓存和列表模式。
 6. 是否同时覆盖项目已有的 flavor/build variant。
 7. 运行最小范围的现有编译、测试或 lint；没有测试时至少编译受影响变体。
+
+涉及 XML/UI 时，另外逐项检查本次 diff，而不是仅凭编译成功判定完成：
+
+- 实际控件的四向约束、相邻内容链、重叠装饰归属是否完整；属性齐全不等于相对关系正确。
+- 可选控件 VISIBLE/GONE 及恢复显示后，其他控件是否仍正确定位；内容型文本变长后是否仍能自适应。
+- 设计范围内的背景、圆角和描边是否完整，是否被运行时代码或不透明父背景覆盖。
+- 仅 UI 任务是否保留原业务条件、参数和路由；未验证的设备视觉效果不得宣称已通过。
 
 ## Target SDK 升级方法
 
